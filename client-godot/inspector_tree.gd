@@ -26,6 +26,13 @@ var signature: Array = []
 var tree_state: Dictionary = {}
 var child_button: Button
 var child_text_button: Button
+var delete_button: Button
+var delete_confirmation: HBoxContainer
+var delete_message: Label
+var delete_confirm_button: Button
+var delete_cancel_button: Button
+var pending_delete_id := ""
+var pending_delete_revision := ""
 
 func setup(view) -> void:
 	inspector = view
@@ -87,6 +94,62 @@ func setup(view) -> void:
 			manager.command({"kind":"structure","command":{"action":"duplicate","target":manager.app.address_of(object),"expected_revision":object.object_revision}},func(result):
 				if result.ok: inspector.choose_target(result.selected.instance_id)
 				else: inspector.message.text = result.get("message","Could not duplicate")))
+	delete_button = view.add_button(self,tr("Delete…"),request_delete)
+	delete_confirmation = HBoxContainer.new()
+	add_child(delete_confirmation)
+	delete_message = Label.new()
+	AppLanguage.format_text(delete_message,"Delete this object and its children for everyone?")
+	delete_message.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	delete_confirmation.add_child(delete_message)
+	delete_cancel_button = view.add_button(delete_confirmation,tr("Cancel"),cancel_delete)
+	delete_confirm_button = view.add_button(delete_confirmation,tr("Delete"),confirm_delete)
+	delete_confirmation.hide()
+
+func request_delete() -> void:
+	var object: Dictionary = manager.app.objects.get(inspector.target_id,{})
+	if object.is_empty() or not manager.app.editable: return
+	if inspector.has_active_edits():
+		inspector.finish_all()
+		inspector.message.text = tr("Finish syncing edits before deleting.")
+		return
+	pending_delete_id = inspector.target_id
+	pending_delete_revision = str(object.object_revision)
+	AppLanguage.format_text(delete_message,"Delete %s and its children for everyone?",[str(manager.field_data(pending_delete_id,"name").get("value",pending_delete_id))])
+	delete_button.hide()
+	delete_confirmation.show()
+
+func cancel_delete() -> void:
+	pending_delete_id = ""
+	pending_delete_revision = ""
+	delete_confirmation.hide()
+	delete_button.show()
+
+func confirm_delete() -> void:
+	var id := pending_delete_id
+	var object: Dictionary = manager.app.objects.get(id,{})
+	if object.is_empty() or not manager.app.editable:
+		cancel_delete()
+		return
+	if inspector.has_active_edits():
+		cancel_delete()
+		inspector.finish_all()
+		inspector.message.text = tr("Finish syncing edits before deleting.")
+		return
+	if str(object.object_revision) != pending_delete_revision:
+		cancel_delete()
+		inspector.message.text = tr("The object changed. Review it and try deleting again.")
+		return
+	var address: Dictionary = manager.app.address_of(object)
+	delete_confirm_button.disabled = true
+	delete_cancel_button.disabled = true
+	manager.command({"kind":"structure","command":{"action":"delete","target":address,"expected_revision":pending_delete_revision}},func(result):
+		delete_confirm_button.disabled = false
+		delete_cancel_button.disabled = false
+		cancel_delete()
+		if result.ok:
+			if inspector.target_id == id: inspector.choose_target("")
+		else:
+			inspector.message.text = result.get("message",tr("Could not delete object")))
 
 func set_root(address: Variant) -> void:
 	var next := tree_state.duplicate(true)
@@ -101,6 +164,8 @@ func move_object(id: String, parent_id: Variant) -> void:
 		if not result.ok: inspector.message.text = result.get("message","Could not move object"))
 
 func refresh() -> void:
+	if delete_confirmation != null:
+		delete_button.disabled = not manager.app.editable or not manager.app.objects.has(inspector.target_id) or inspector.has_active_edits()
 	tree_state = inspector.panel_state.inspector.get("tree",{"root":null,"collapsed":[]})
 	# Rebuild key as data: (id, parent instance, name-field revision) per
 	# object. Rust bumps a field's revision on every write, so the key
@@ -143,4 +208,10 @@ func add_children(parent: TreeItem, parent_id: String, depth: int) -> void:
 
 func refresh_language() -> void:
 	signature = []
+	if delete_button != null:
+		delete_button.text = tr("Delete…")
+		delete_cancel_button.text = tr("Cancel")
+		delete_confirm_button.text = tr("Delete")
+		if not pending_delete_id.is_empty() and manager.app.objects.has(pending_delete_id):
+			AppLanguage.format_text(delete_message,"Delete %s and its children for everyone?",[str(manager.field_data(pending_delete_id,"name").get("value",pending_delete_id))])
 	refresh()

@@ -198,12 +198,12 @@ func build_world() -> void:
 	settings.background_color = Color("243645")
 	settings.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	settings.ambient_light_color = Color("b7d3e0")
-	settings.ambient_light_energy = 0.65
+	settings.ambient_light_energy = 0.3
 	environment.environment = settings
 	add_child(environment)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-55, -30, 0)
-	sun.light_energy = 1.8
+	sun.light_energy = 0.9
 	sun.shadow_enabled = true
 	add_child(sun)
 	var floor_mesh := MeshInstance3D.new()
