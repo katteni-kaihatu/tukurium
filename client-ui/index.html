@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>tukurium</title>
+  <link rel="stylesheet" href="theme.css">
+</head>
+<body>
+  <header class="glass" data-hit data-radius="18">
+    <div class="brand">
+      <img id="mascot" alt="" width="30" height="28">
+      <span class="word">tukurium</span>
+    </div>
+    <div class="modes" role="group" aria-label="モード">
+      <button type="button" id="play" data-command="play">Play</button>
+      <button type="button" id="edit" data-command="edit">Edit</button>
+    </div>
+    <div id="room" class="room"></div>
+    <div class="status">
+      <span id="sync"></span>
+      <span id="engine"></span>
+      <span id="fps"></span>
+      <button type="button" id="view" class="ghost" data-command="view"></button>
+      <button type="button" id="open-inspector" class="ghost" data-command="inspector">Inspector</button>
+    </div>
+  </header>
+
+  <section id="inspector" class="glass window" data-hit data-radius="18" hidden>
+    <div id="inspector-mount"></div>
+  </section>
+  <script src="inspector.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

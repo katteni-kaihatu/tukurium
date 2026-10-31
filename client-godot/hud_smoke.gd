@@ -105,8 +105,10 @@ func run() -> void:
 	if not scene.edit_mode or not scene.hud.dock_buttons.inspector.visible: push_error("Edit mode did not add Inspector to dock"); quit(1); return
 	await capture("-edit")
 	click(scene.hud.dock_buttons.inspector.get_global_rect().get_center())
-	if not await until(func(): return scene.world_panels.windows.size()==1,"Dock did not open 2D inspector"): quit(1); return
-	if not scene.world_panels.panels.is_empty(): push_error("Dock inspector created a shared panel"); quit(1); return
+	if not await until(func(): return scene.world_panels.panels.size()==1 and scene.world_panels.pinned_to_me(str(scene.world_panels.panels.keys()[0])),"Dock did not pin the inspector"): quit(1); return
+	if not scene.world_panels.windows.is_empty(): push_error("Dock inspector opened a separate window"); quit(1); return
+	scene.world_panels.close_panel(str(scene.world_panels.panels.keys()[0]))
+	if not await until(func(): return scene.world_panels.panels.is_empty(),"Pinned inspector did not close"): quit(1); return
 	click(scene.hud.edit_mode_buttons.play.get_global_rect().get_center())
 	if scene.edit_mode or scene.hud.dock_buttons.inspector.visible or not scene.world_panels.windows.is_empty(): push_error("Play mode kept editor UI open"); quit(1); return
 	click(scene.hud.edit_mode_buttons.edit.get_global_rect().get_center())
@@ -195,9 +197,10 @@ func run() -> void:
 	if not scene.hud.ring.visible or not scene.gameplay_keyboard_blocked(): push_error("Middle click did not open ring"); quit(1); return
 	await capture("-ring")
 	click(scene.hud.ring.center+Vector2(0,-125))
-	if not await until(func(): return scene.world_panels.windows.size()==1,"Ring did not open local inspector"): quit(1); return
-	if not scene.world_panels.panels.is_empty(): push_error("2D ring action created shared panel"); quit(1); return
-	scene.world_panels.close_window(scene.world_panels.windows.keys()[0])
+	if not await until(func(): return scene.world_panels.panels.size()==1 and scene.world_panels.pinned_to_me(str(scene.world_panels.panels.keys()[0])),"Ring did not pin the inspector"): quit(1); return
+	if not scene.world_panels.windows.is_empty(): push_error("2D ring action opened a separate window"); quit(1); return
+	scene.world_panels.close_panel(str(scene.world_panels.panels.keys()[0]))
+	if not await until(func(): return scene.world_panels.panels.is_empty(),"Pinned inspector did not close"): quit(1); return
 	await create_timer(0.1).timeout
 	scene.hud.resume_view()
 	click(root.size*0.5,MOUSE_BUTTON_MIDDLE)

@@ -12,8 +12,9 @@
 現在はInspectorViewとCreationViewがあり、共通の表示面で描画する。
 パネルの種類ごとに独立したMesh、Collider、入力転送を作らない。
 
-GodotではSubViewportのUIをテクスチャとして表示面へ貼る。
-入力は自動では届かないため、ワールド上の交点をUIの座標へ変換して転送する。
+Godotでは、作成パネルはSubViewportのUIをテクスチャとして表示面へ貼る。
+共有インスペクタは、HTMLホストが使えるとき同じHTMLページをオフスクリーンで描き、撮った画素を板へ貼る。ホストが無い・ヘッドレス・`--script`では、これまでどおりSubViewportの`inspector_view`を使う。
+入力は自動では届かないため、ワールド上の交点をUIの座標へ変換して転送する。HTML板では交点をホストへ送り、ページ側でポインターを再現する。
 SubViewportの役割は [Godot公式ドキュメント](https://docs.godotengine.org/en/stable/classes/class_subviewport.html) を参照。
 
 実装の入口は [world_panel.gd](../client-godot/world_panel.gd)、生成・入力の管理は [world_panels.gd](../client-godot/world_panels.gd)。

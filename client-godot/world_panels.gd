@@ -15,9 +15,12 @@ var drive_sources: Dictionary = {}
 var evaluated_transforms: Dictionary = {}
 var windows: Dictionary = {}
 var dock_inspector_id := ""
+var pin_when_created := ""
 var pending_panel_close: Dictionary = {}
 var carried_reference: Dictionary = {}
 var graph_context_id := ""
+var html_pinned_active := false
+var html_text_focus := false
 
 func setup(application) -> void:
 	app = application
@@ -116,6 +119,89 @@ func panel_spawn_position(distance: float) -> Vector3:
 		# Opening a tool while looking at another must not put it behind that surface.
 		distance = maxf(0.6,origin.distance_to(hit.position)-0.4)
 	return origin + forward*distance
+
+func target_of(id: String) -> String:
+	var inspector = app.objects.get(id, {}).get("inspector", null)
+	if inspector is Dictionary and inspector.get("target") != null: return str(inspector.target.instance_id)
+	return ""
+
+func pinned_to_me(id: String) -> bool:
+	var attachment = app.objects.get(id, {}).get("panel", {}).get("attachment", null)
+	return attachment is Dictionary and str(attachment.get("user_id", "")) == app.self_id and attachment.get("screen") is Dictionary
+
+func pinned_ids() -> Array:
+	var ids := []
+	for id in panels.keys():
+		if pinned_to_me(id): ids.append(id)
+	return ids
+
+func pin_panel(id: String) -> void:
+	if not app.objects.has(id): return
+	var viewport: Vector2 = app.get_viewport().get_visible_rect().size
+	if viewport.x < 100.0 or viewport.y < 100.0: return
+	var panel_size: Array = app.objects[id].panel.size
+	var panel_aspect := float(panel_size[0]) / maxf(float(panel_size[1]), 1.0)
+	var height := minf(640.0, viewport.y - 110.0)
+	var width := height * panel_aspect
+	if width > viewport.x - 90.0:
+		width = viewport.x - 90.0
+		height = width / panel_aspect
+	pin_panel_rect(id, [72.0 / viewport.x, 88.0 / viewport.y, width / viewport.x, height / viewport.y], viewport.x / viewport.y)
+
+func pin_panel_rect(id: String, rect: Array, aspect: float) -> void:
+	if not app.objects.has(id): return
+	for other in pinned_ids():
+		if other != id: edit(other, "panel_pin", null)
+	var x := clampf(float(rect[0]), 0.0, 0.95)
+	var y := clampf(float(rect[1]), 0.0, 0.95)
+	var w := clampf(float(rect[2]), 0.05, 1.0)
+	var h := clampf(float(rect[3]), 0.05, 1.0)
+	if x + w > 1.0: w = 1.0 - x
+	if y + h > 1.0: h = 1.0 - y
+	if w < 0.05 or h < 0.05: return
+	edit(id, "panel_pin", {
+		"user_id": "$self",
+		"offset": [0.0, 1.15, -1.2],
+		"rotation": [0.0, 0.0, 0.0, 1.0],
+		"screen": {"rect": [x, y, w, h], "aspect": clampf(aspect, 0.4, 4.0)},
+	})
+
+func toggle_pin(id: String) -> void:
+	if pinned_to_me(id): edit(id, "panel_pin", null)
+	else: pin_panel(id)
+
+func pin_target(target_id: String) -> void:
+	if not app.edit_mode or not app.editable: return
+	for id in panels.keys():
+		if panels[id].inspector_content and target_of(id) == target_id:
+			toggle_pin(id)
+			return
+	pin_when_created = target_id
+	open_inspector(target_id)
+
+func release_pins() -> void:
+	for id in pinned_ids(): edit(id, "panel_pin", null)
+
+func sync_pinned_presentation() -> void:
+	var html: bool = app.html_ui != null and app.html_ui.active
+	var any_pinned := false
+	for id in panels.keys():
+		var pinned: bool = panels[id].inspector_content and pinned_to_me(id)
+		# Owner with HTML sees the same inspector as a 2D overlay; hide the board locally.
+		panels[id].visible = not (html and pinned)
+		if html and pinned: any_pinned = true
+	if any_pinned != html_pinned_active:
+		# Pin toggles must not leave HTML text focus armed, or WASD stays swallowed.
+		html_text_focus = false
+		if any_pinned: app.release_cursor()
+		if app.html_ui: app.html_ui.focus_godot()
+	html_pinned_active = any_pinned
+	if pin_when_created.is_empty(): return
+	for id in panels.keys():
+		if panels[id].inspector_content and target_of(id) == pin_when_created and not pinned_to_me(id):
+			pin_when_created = ""
+			pin_panel(id)
+			return
 
 func open_inspector(target_id: String = "", desktop: bool = false) -> void:
 	if not app.edit_mode or not app.editable: return
@@ -257,6 +343,7 @@ func refresh_gizmos() -> void:
 			shared_gizmos.erase(id)
 
 func text_focused() -> bool:
+	if html_text_focus: return true
 	for panel in panels.values():
 		if panel.has_text_focus(): return true
 	return false
@@ -266,6 +353,8 @@ func clear_focus() -> void:
 	keyboard_id = ""
 	capture_id = ""
 	graph_context_id = ""
+	html_text_focus = false
+	if app.html_ui: app.html_ui.focus_godot()
 
 func pick(screen: Vector2) -> Dictionary:
 	var origin: Vector3 = app.camera.project_ray_origin(screen)
@@ -280,6 +369,9 @@ func route_input(event: InputEvent) -> bool:
 	if event is InputEventKey and text_focused() and panels.has(keyboard_id):
 		if event.keycode == KEY_ESCAPE and event.pressed:
 			clear_focus()
+			return true
+		if panels[keyboard_id].using_html and app.html_ui != null and app.html_ui.active:
+			app.html_ui.panel_key(keyboard_id, event)
 			return true
 		panels[keyboard_id].viewport.push_input(event.duplicate(), true)
 		return true
@@ -336,6 +428,8 @@ func route_input(event: InputEvent) -> bool:
 			if keyboard_id != hit.id: clear_focus()
 			keyboard_id = hit.id
 			capture_id = hit.id
+			# Do not arm html_text_focus here: a non-field click would swallow WASD until
+			# panel_focus arrives. Field focus is confirmed by the HTML page instead.
 		else: capture_id = ""
 	panels[hit.id].forward_pointer(event, hit.position)
 	# FPS aims the pointer with the view, including while dragging a UI control.
@@ -343,6 +437,7 @@ func route_input(event: InputEvent) -> bool:
 	return not event is InputEventMouseMotion or not app.fps_active
 
 func tick() -> void:
+	sync_pinned_presentation()
 	for view in views(): view.tick()
 	for id in windows.keys():
 		if windows[id].get_meta("closing") and not windows[id].get_meta("inspector").has_active_edits(): close_window(id)

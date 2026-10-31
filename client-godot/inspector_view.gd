@@ -87,6 +87,8 @@ func build_layout() -> void:
 	title.add_theme_font_size_override("font_size", 27)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
+	if not desktop:
+		add_button(header, "ピン", func(): manager.toggle_pin(panel_id)).tooltip_text = "画面の2D表示と、掴める3Dの板を切り替える。2Dも同じインスペクタです。板は物体一覧や階層には出ません"
 	add_button(header, "+", func(): manager.duplicate_panel(panel_id))
 	add_button(header, "↗", func(): manager.open_inspector(target_id, true)).tooltip_text = "Inspect this object in a separate local window"
 	add_button(header, "×", func(): manager.close_panel(panel_id)).tooltip_text = "Delete this shared inspector for everyone"
@@ -530,6 +532,7 @@ func refresh(object: Dictionary) -> void:
 	# (id, name) pairs do — without stringifying every object's name.
 	var picker_key: Array = []
 	for id in manager.app.objects:
+		if manager.app.objects[id].get("inspector") != null: continue
 		var name_field: Dictionary = manager.field_data(id, "name")
 		entries.append([id, name_field.get("value", id)])
 		picker_key.append([id, str(name_field.get("revision", ""))])

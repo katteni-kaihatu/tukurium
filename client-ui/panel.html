@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>tukurium panel</title>
+  <link rel="stylesheet" href="theme.css">
+  <style>
+    /* Match the 2D overlay paper tone (cream + mauve), not the old dark Control board. */
+    html, body {
+      width: 1120px;
+      height: 960px;
+      margin: 0;
+      background: #fffdf9;
+      color: #26262e;
+    }
+    body.panel-mode .inspector-shell {
+      position: absolute;
+      inset: 0;
+      border-radius: 0;
+      box-shadow: none;
+      background: #fffdf9;
+      border: 0;
+      color: #26262e;
+    }
+    body.panel-mode .whead {
+      background: #fffdf9;
+      border-bottom: 1px solid #e7e1d6;
+    }
+    body.panel-mode .tree { background: #f7f3eb; }
+    body.panel-mode .main { background: #fffdf9; }
+  </style>
+</head>
+<body class="panel-mode">
+  <div id="mount"></div>
+  <script src="inspector.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

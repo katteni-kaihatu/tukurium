@@ -1,5 +1,6 @@
 extends MeshInstance3D
 ## A shared surface. Content views render InspectorView or CreationView data.
+## Inspector boards prefer the HTML panel texture when the host is connected.
 const INSPECTOR_VIEW = preload("res://inspector_view.gd")
 const CREATION_VIEW = preload("res://creation_panel.gd")
 var panel_id := ""
@@ -8,6 +9,8 @@ var content
 var inspector_content := true
 var manager
 var last_pointer := Vector2(-1000, -1000)
+var html_texture: Texture2D
+var using_html := false
 
 func setup(controller, id: String) -> void:
 	manager = controller
@@ -46,22 +49,45 @@ func setup(controller, id: String) -> void:
 
 func refresh(object: Dictionary) -> void:
 	var size := Vector2i(int(object.panel.size[0]), int(object.panel.size[1]))
-	# Assigning the same size still reallocates the render target, so only
-	# resize when the shared panel size actually changed (as in mirror_renderer).
 	if viewport.size != size:
 		viewport.size = size
-		# Preserve square pixels on the world surface; the desktop window has its own layout.
 		mesh.size = Vector2(1.6 * float(size.x) / float(size.y), 1.6)
 	content.refresh(object)
+	if inspector_content and manager.app.html_ui != null and manager.app.html_ui.active:
+		# Prefer the HTML paper board immediately so the old dark Control theme never flashes.
+		using_html = true
+		content.visible = false
+		viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		var texture = manager.app.html_ui.texture_for(panel_id)
+		if texture != null: apply_html_texture(texture)
+		else:
+			material_override.albedo_texture = null
+			material_override.albedo_color = Color("fffdf9")
+
+func apply_html_texture(texture: Texture2D) -> void:
+	if not inspector_content or texture == null: return
+	html_texture = texture
+	using_html = true
+	material_override.albedo_color = Color(1, 1, 1, 1)
+	material_override.albedo_texture = texture
+	viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	content.visible = false
+
+func canvas_size() -> Vector2:
+	if using_html: return Vector2(1120, 960)
+	return Vector2(viewport.size)
 
 func canvas_point(global_point: Vector3) -> Vector2:
 	var local := to_local(global_point)
-	return Vector2((local.x / mesh.size.x + 0.5) * viewport.size.x, (0.5 - local.y / mesh.size.y) * viewport.size.y)
+	var size := canvas_size()
+	return Vector2((local.x / mesh.size.x + 0.5) * size.x, (0.5 - local.y / mesh.size.y) * size.y)
 
 func forward_pointer(event: InputEventMouse, point: Vector2) -> void:
+	if using_html and manager.app.html_ui != null and manager.app.html_ui.active:
+		manager.app.html_ui.panel_pointer(panel_id, point, event)
+		last_pointer = point
+		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		# A camera move can change the hit without a viewport mouse-motion event.
-		# Refresh hover at the actual ray hit before deciding which editor keeps focus.
 		var motion := InputEventMouseMotion.new()
 		motion.position = point
 		motion.global_position = point
@@ -88,5 +114,6 @@ func clear_focus() -> void:
 	content.finish_all()
 
 func has_text_focus() -> bool:
+	if using_html: return false
 	var focus := viewport.gui_get_focus_owner()
 	return focus is LineEdit or focus is TextEdit

@@ -1,7 +1,8 @@
 //! Shared panel semantics; Godot owns only rendering, hit testing and local input.
 use crate::{components::*, resources::*, systems::bump_field};
 use bevy_ecs::prelude::*;
-use kokoverse_protocol::{Address, ObjectView, PanelAttachment, Snapshot, Visual};
+use glam::{DMat3, DQuat, DVec3};
+use kokoverse_protocol::{Address, AvatarPose, ObjectView, PanelAttachment, ScreenRect, Snapshot, Visual};
 use serde_json::{Value, json};
 
 pub const MAX_PANELS: usize = 16;
@@ -49,6 +50,7 @@ pub(crate) fn validate_field(id: &str, value: &Value) -> Result<(), String> {
                         && a.user_id.len() <= 512
                         && a.offset.iter().all(|v| v.is_finite() && v.abs() <= 100.0)
                         && crate::validate_value("rotation", &json!(a.rotation)).is_ok()
+                        && a.screen.as_ref().is_none_or(valid_screen)
                 })
         }
         _ => false,
@@ -58,6 +60,19 @@ pub(crate) fn validate_field(id: &str, value: &Value) -> Result<(), String> {
     } else {
         Err(format!("Invalid {id}"))
     }
+}
+
+fn valid_screen(screen: &ScreenRect) -> bool {
+    let [x, y, w, h] = screen.rect;
+    [x, y, w, h].iter().all(|v| v.is_finite())
+        && (0.0..=1.0).contains(&x)
+        && (0.0..=1.0).contains(&y)
+        && (0.05..=1.0).contains(&w)
+        && (0.05..=1.0).contains(&h)
+        && x + w <= 1.001
+        && y + h <= 1.001
+        && screen.aspect.is_finite()
+        && (0.4..=4.0).contains(&screen.aspect)
 }
 
 fn surface_components(object: &ObjectView) -> impl Iterator<Item = &'static crate::replication::ComponentRegistration> + '_ {
@@ -235,6 +250,39 @@ pub(crate) fn target_removed(world: &mut World, address: &Address) {
     }
 }
 
+/// Eye height matches the FPS camera in `main.gd`. Vertical FOV matches Godot's Camera3D default.
+const EYE_HEIGHT: f64 = 1.15;
+const VIEW_FOV_Y: f64 = 75.0_f64.to_radians();
+const PANEL_HEIGHT: f64 = 1.6;
+
+fn view_basis(yaw: f64, pitch: f64) -> (DVec3, DVec3, DVec3) {
+    let (sy, cy) = yaw.sin_cos();
+    let (sp, cp) = pitch.sin_cos();
+    (
+        DVec3::new(cy, 0.0, -sy),
+        DVec3::new(-sy * sp, cp, -cy * sp),
+        DVec3::new(-sy * cp, -sp, -cy * cp),
+    )
+}
+
+/// Place the panel on the owner's view plane so its center matches `screen.rect` in the window.
+fn screen_pose(pose: &AvatarPose, screen: &ScreenRect) -> ([f64; 3], [f64; 4]) {
+    let [x, y, w, h] = screen.rect;
+    let h = h.clamp(0.08, 1.0);
+    let half_fov = VIEW_FOV_Y * 0.5;
+    let mut distance = (PANEL_HEIGHT / h) / (2.0 * half_fov.tan());
+    distance = distance.clamp(0.45, 6.0);
+    let vis_h = 2.0 * distance * half_fov.tan();
+    let vis_w = vis_h * screen.aspect.clamp(0.4, 4.0);
+    let ndc_x = ((x + w * 0.5).clamp(0.0, 1.0)) * 2.0 - 1.0;
+    let ndc_y = 1.0 - ((y + h * 0.5).clamp(0.0, 1.0)) * 2.0;
+    let (right, up, forward) = view_basis(pose.yaw, pose.pitch);
+    let eye = DVec3::from_array(pose.position) + DVec3::Y * EYE_HEIGHT;
+    let position = eye + right * (ndc_x * vis_w * 0.5) + up * (ndc_y * vis_h * 0.5) + forward * distance;
+    let rotation = DQuat::from_mat3(&DMat3::from_cols(right, up, -forward)).to_array();
+    (position.to_array(), rotation)
+}
+
 /// Runs only on the authority, producing normal transform commits at the authoring boundary.
 pub(crate) fn follow_users(world: &mut World) {
     let participants = world
@@ -257,16 +305,21 @@ pub(crate) fn follow_users(world: &mut World) {
             changed = true;
             continue;
         };
-        let (s, c) = pose.yaw.sin_cos();
-        let [x, y, z] = attachment.offset;
-        let position = [
-            pose.position[0] + c * x + s * z,
-            pose.position[1] + y,
-            pose.position[2] - s * x + c * z,
-        ];
-        let (s, c) = (pose.yaw * 0.5).sin_cos();
-        let [x, y, z, w] = attachment.rotation;
-        let rotation = [c * x + s * z, c * y + s * w, c * z - s * x, c * w - s * y];
+        let (position, rotation) = if let Some(screen) = &attachment.screen {
+            screen_pose(&pose, screen)
+        } else {
+            let (s, c) = pose.yaw.sin_cos();
+            let [x, y, z] = attachment.offset;
+            let position = [
+                pose.position[0] + c * x + s * z,
+                pose.position[1] + y,
+                pose.position[2] - s * x + c * z,
+            ];
+            let (s, c) = (pose.yaw * 0.5).sin_cos();
+            let [x, y, z, w] = attachment.rotation;
+            let rotation = [c * x + s * z, c * y + s * w, c * z - s * x, c * w - s * y];
+            (position, rotation)
+        };
         if position != old.translation || rotation != old.rotation {
             if crate::validate_value("position", &json!(position)).is_err() {
                 continue;
@@ -527,5 +580,53 @@ mod tests {
             .unwrap()
             .size = [4000, 4000];
         assert!(model.restore(bad).is_err());
+    }
+
+    #[test]
+    fn pinned_screen_rect_follows_the_owner_window() {
+        use kokoverse_protocol::{AvatarPose, ParticipantView, PlayerInput};
+        use std::time::Duration;
+        let mut model = WorldModel::new();
+        model
+            .update_participant(ParticipantView {
+                avatar_texture: None,
+                id: "local".into(),
+                name: "Test".into(),
+                pose: AvatarPose { position: [0.0; 3], yaw: 0.0, pitch: 0.0 },
+            })
+            .unwrap();
+        model.tick();
+        model.enable_local_player("local").unwrap();
+        model.set_script_authority(true);
+        model
+            .set_player_input(PlayerInput { active: true, yaw: 0.0, pitch: 0.0, ..PlayerInput::default() })
+            .unwrap();
+        model.advance(Duration::from_millis(50));
+        let target = model.snapshot().objects[0].address.clone();
+        let id = panel(&mut model, target);
+        let pin = crate::replication::REGISTRY.field_address(&id, "panel_pin").unwrap();
+        model
+            .enqueue(WorldCommand::Edit {
+                edit: Edit {
+                    command_id: "pin".into(),
+                    target: pin,
+                    field_id: "panel_pin".into(),
+                    expected_revision: "0".into(),
+                    value: json!({
+                        "user_id": "local",
+                        "offset": [0.0, 1.15, -1.2],
+                        "rotation": [0.0, 0.0, 0.0, 1.0],
+                        "screen": {"rect": [0.62, 0.2, 0.3, 0.45], "aspect": 16.0 / 9.0}
+                    }),
+                },
+            })
+            .unwrap();
+        model.advance(Duration::from_millis(50));
+        let placed = model.snapshot().objects.into_iter().find(|o| o.address == id).unwrap();
+        let pos = placed.world_position;
+        assert!(pos[0] > 0.2, "right side of the window should sit to the owner's right, got {pos:?}");
+        assert!(pos[2] < -0.4, "the panel should sit in front of the owner, got {pos:?}");
+        assert!(pos[1] > 0.6, "the panel should stay near eye height, got {pos:?}");
+        assert!(placed.panel.unwrap().attachment.unwrap().screen.is_some());
     }
 }

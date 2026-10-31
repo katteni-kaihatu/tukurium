@@ -18,11 +18,24 @@ impl TypedReference {
     }
 }
 
+/// Where a pinned panel sits inside its owner's window.
+/// `rect` is x, y, width, height in 0..1 with the origin at the top-left.
+/// `aspect` is the owner window's width divided by its height.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ScreenRect {
+    pub rect: [f64; 4],
+    pub aspect: f64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct PanelAttachment {
     pub user_id: String,
     pub offset: [f64; 3],
     pub rotation: [f64; 4],
+    /// Set while the owner is viewing this panel as 2D. Others see the same
+    /// panel on that person's view plane, at the matching window position.
+    #[serde(default)]
+    pub screen: Option<ScreenRect>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

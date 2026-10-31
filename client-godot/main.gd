@@ -10,6 +10,7 @@ const SCRIPT_EDITOR = preload("res://script_editor.gd")
 const WORLD_PANELS = preload("res://world_panels.gd")
 const REQUEST_BROKER = preload("res://request_broker.gd")
 const WORLD_HUD = preload("res://world_hud.gd")
+const HTML_UI = preload("res://html_ui.gd")
 const SOCIAL_PANELS = preload("res://social_panels.gd")
 const PRIMITIVE_MESH = preload("res://primitive_mesh.gd")
 const RENDER_HIERARCHY = preload("res://render_hierarchy.gd")
@@ -19,6 +20,7 @@ var render_hierarchy = RENDER_HIERARCHY.new()
 var camera_tool = CAMERA_TOOL.new()
 var mirror_renderer = MIRROR_RENDERER.new()
 var hud = WORLD_HUD.new()
+var html_ui = HTML_UI.new()
 var social_panels = SOCIAL_PANELS.new()
 var requests = REQUEST_BROKER.new()
 var world_panels = WORLD_PANELS.new()
@@ -173,6 +175,8 @@ func _ready() -> void:
 	social_panels.setup(self)
 	add_child(hud)
 	hud.setup(self)
+	add_child(html_ui)
+	html_ui.setup(self)
 	add_child(camera_tool)
 	camera_tool.setup(self)
 	add_child(mirror_renderer)
@@ -1366,8 +1370,12 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 		if not used_images.has(source): image_textures.erase(source)
 	asset_importer.evict_unused_assets()
 	camera_tool.world_updated()
-	if not objects.has(selected_id):
-		selected_id = "" if objects.is_empty() else str(objects.keys()[0])
+	if not objects.has(selected_id) or objects[selected_id].get("inspector") != null:
+		selected_id = ""
+		for candidate in objects:
+			if objects[candidate].get("inspector") == null:
+				selected_id = str(candidate)
+				break
 		dirty.clear()
 	AppLanguage.format_text(revision_label,"World revision %s · ObjectRoot",[snapshot.world_revision])
 	asset_status.refresh_badges()
@@ -1446,7 +1454,7 @@ func create_render_node(object: Dictionary) -> MeshInstance3D:
 
 func select_object(id: String) -> void:
 	if pending: return
-	if not objects.has(id): return
+	if not objects.has(id) or objects[id].get("inspector") != null: return
 	if id != selected_id and gizmo.dragging: gizmo.cancel_drag()
 	if id != selected_id: dirty.clear()
 	selected_id = id
@@ -1457,7 +1465,7 @@ func update_selected() -> void:
 	current = objects.get(selected_id, {})
 	video_controls.visible = not current.is_empty() and current.visual.kind == "video"
 	fields.clear()
-	selection_outline.visible = not current.is_empty() and current.get("visual", {}).get("kind") != "none"
+	selection_outline.visible = not current.is_empty() and current.get("inspector") == null and current.get("visual", {}).get("kind") != "none"
 	if current.is_empty():
 		AppLanguage.format_text(object_label,"No object selected")
 		name_input.text = ""
@@ -1484,6 +1492,7 @@ func rebuild_tree() -> void:
 		node.queue_free()
 	for id in objects:
 		var object: Dictionary = objects[id]
+		if object.get("inspector") != null: continue
 		var button := Button.new()
 		var name := "Cube"
 		for field in object.fields:
@@ -1644,6 +1653,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var hit := get_world_3d().direct_space_state.intersect_ray(query)
 		if not hit.is_empty() and hit.collider.has_meta("object_id"):
 			var hit_id := str(hit.collider.get_meta("object_id"))
+			if objects.get(hit_id, {}).get("inspector") != null: return
 			select_object(hit_id)
 			if event.double_click and camera_tool.is_camera(hit_id):
 				camera_tool.open(hit_id)

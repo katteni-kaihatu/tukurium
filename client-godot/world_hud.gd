@@ -28,6 +28,7 @@ var engine_label: Label
 var mode_button: Button
 var language_selector: OptionButton
 var language_status: Label
+var top_bar: PanelContainer
 var ring_target := ""
 var next_status := 0
 
@@ -76,6 +77,7 @@ func setup(owner) -> void:
 	theme.default_font_size = 15
 	root.theme = theme
 	var bar := PanelContainer.new()
+	top_bar = bar
 	bar.name="TopBar"
 	bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	bar.offset_left=16; bar.offset_right=-16; bar.offset_top=14; bar.offset_bottom=66
@@ -240,6 +242,9 @@ func set_edit_mode(enabled: bool) -> void:
 	app.world_panels.refresh_gizmos()
 	refresh_edit_mode()
 
+func set_html_chrome(active: bool) -> void:
+	if top_bar: top_bar.visible = not active
+
 func set_dock_open(open: bool, animate: bool = true) -> void:
 	if dock_open==open: return
 	dock_open=open
@@ -263,7 +268,7 @@ func set_dock_open(open: bool, animate: bool = true) -> void:
 
 func open_dock(key: String) -> void:
 	if key=="inspector":
-		if app.edit_mode: app.world_panels.toggle_dock_inspector(app.selected_id)
+		if app.edit_mode: app.world_panels.pin_target(app.selected_id)
 	elif key=="camera":
 		app.camera_tool.open(app.selected_id)
 	elif key=="settings":
@@ -341,7 +346,7 @@ func choose_action(index: int) -> void:
 	ring.hide()
 	if not app.edit_mode: return
 	match index:
-		0: app.world_panels.open_inspector(ring_target,true)
+		0: app.world_panels.pin_target(ring_target)
 		1: app.world_panels.open_inspector(ring_target)
 		2: open_creation()
 		3: app.choose_image()

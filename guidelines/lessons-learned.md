@@ -3,6 +3,12 @@
 確認日：2026-10-24。以下は再現・修正を確認した記録。
 現在の操作規則は [3Dパネルの実装指針](world-space-panels.md) を参照する。
 
+## `cfg!` では Unix 専用の API を Windows ビルドから外せない
+
+`tukurium-supervisor` は `if cfg!(unix)` の中で `libc::kill` を呼んでいた。`cfg!` は実行時の真偽値なので両分岐が型検査され、Windows の `libc` に `kill` が無いため `cargo build` が失敗する。OS で実装が分かれる API は `#[cfg(unix)]` と `#[cfg(not(unix))]` でコンパイル対象から外す。
+
+- コード：[supervisor.rs](../crates/supervisor/src/supervisor.rs) の `reap_processes()`。確認日：2026-10-27。
+
 ## 編集結果のコールバックは全分岐で必ず1回呼ぶ
 
 `world_panels.edit()` は、オブジェクト不在・切断時は `ok:false` で結果を返していたが、対象フィールドが表示モデルから消えている場合だけコールバックを呼ばずに戻っていた。呼び出し側のインスペクタは送信前に `inflight` を立て、解除はコールバックだけに依存する。保持開始も結果待ちで `grab_waiting` を戻す。そのため、他参加者のComponent削除と競合すると編集状態が固まり、パネルの保留クローズも進まなくなった。
@@ -469,3 +475,32 @@ Component スキーマは catalog メッセージで接続時に一度だけ届�
 
 - 再現・確認：リモート編集中に snapshot が届く順序を [panel_observer_smoke.gd](../client-godot/panel_observer_smoke.gd) が決定的に踏む（下書き表示を確認した直後に `world_panels.sync()` を呼び、状態が保たれることを同期的に再確認する）。[panels-integration.mjs](../tests/panels-integration.mjs) `--rendered` で確認する。
 - コード：[inspector_view.gd](../client-godot/inspector_view.gd) の `fill_values()` / `remote_session()` / `refresh_sessions()`。確認日：2026-10-26。
+
+## 型の決まらない値に `:=` を付けるとシーン本体が読み込まれない
+
+`world_panels.gd` の `var html := app.html_ui != null and app.html_ui.active` は、`app` が無型なので右辺が Variant になり、Godot 4 は型推論を解析エラーにする。依存先の `html_ui.gd` も同じ理由で落ち、`main.gd` ごとコンパイルに失敗する。スクリプトが読まれないと `_ready` の途中でカメラ追加前に止まり、ウィンドウは環境色の藍色だけになる。
+
+無型のプロパティや、それと `and` / `or` で結んだ式には `:=` を使わない。`var html: bool = ...` のように型を書く。依存スクリプトの解析エラーは、本体の実行時エラーより先にログの先頭を見る。
+
+- 再現・確認：解析エラーのある状態でウィンドウ起動するとカメラが無く藍色だけになる。型を明示したあと、同じ起動で床とグリッドが見えることを確認する。
+- コード：[world_panels.gd](../client-godot/world_panels.gd) の `sync_pinned_presentation()`、[html_ui.gd](../client-godot/html_ui.gd) の `pinned_view()`。確認日：2026-10-31。
+
+## 道具の板を物体一覧に出すと、掴めることと物体であることが混ざる
+
+インスペクタはワールドに板としてあり、右クリックで保持できる。同時に Slot と同じ一覧・階層・選択へ出すと、道具が別の物体に見える。掴める当たり判定と、物体として見せる一覧は分ける。一覧・階層・対象の選択・選択枠からは `inspector` を持つ板を外し、保持と3Dの板はそのままにする。
+
+2D表示を別の簡略フィールド一覧にすると、3Dの階層・Component・Scriptが欠ける。ピン留めの2Dは同じ `inspector_view` を画面へ出す。ドラッグ中の位置は、共有の矩形が往復して戻るまで上書きしない。
+
+- コード：[inspector_tree.gd](../client-godot/inspector_tree.gd)、[inspector_view.gd](../client-godot/inspector_view.gd) の対象一覧、[main.gd](../client-godot/main.gd) の `select_object()`。確認日：2026-10-31。
+
+## 3Dの板にHTMLを載せるときはオーバーレイとは別の固定解像度 WebView にする
+
+Godotのウィンドウに張り付いた透明オーバーレイは、斜めの板のテクスチャには使えない。板用には 1120×960 のオフスクリーン WebView を別途持ち、`Page.captureScreenshot` で PNG を取り、既存の `albedo_texture` に載せる。レイの交点は同じページへポインターとして戻す。オーバーレイの hit 領域と画素を共用しない。状態が変わったときと操作中だけ撮る。
+
+- コード：[html-host](../crates/html-host/src/main.rs) の panel WebView、[panel.html](../client-ui/panel.html)、[world_panel.gd](../client-godot/world_panel.gd) の `apply_html_texture()` / `forward_pointer()`。確認日：2026-10-31。
+
+## HTMLオーバーレイがフォーカスを持つと Godot にキーが届かない
+
+ピンやインスペクタのクリックは WebView2 の子 HWND に OS フォーカスを移す。領域外はクリック透過でも、フォーカスが残ると WASD がしばらく効かない。入力欄以外の操作のあと、およびピン切替のあとに `SetFocus` で Godot の親 HWND へ戻す。再設定は数回だけ間隔を空けて行い、毎フレーム `SetFocus` しない（ウィンドウドラッグやクリックが死ぬ）。オフスクリーンの板用 WebView は Godot の子にせず、html-host 側の隠れウィンドウへ付ける。Godot 直下に複数の WebView2 HWND があると、領域未設定の兄弟がクライアント全面の入力を奪う。オーバーレイ側に増えた子にも同じ hit 領域を当てる。`html_text_focus` は入力欄の `panel_focus` だけで立てる。ピン切替時は必ず落とす。入力中は DOM を再構築せず、Enter / フォーカス離脱で確定する。
+
+- コード：[html-host](../crates/html-host/src/main.rs)、[inspector.js](../client-ui/inspector.js)、[html_ui.gd](../client-godot/html_ui.gd)、[world_panels.gd](../client-godot/world_panels.gd)。確認日：2026-10-31。
