@@ -10,7 +10,7 @@ pub const MAX_PANELS: usize = 16;
 pub(crate) fn half_extents(size: [u32; 2]) -> [f64; 3] {
     [0.8 * size[0] as f64 / size[1] as f64, 0.8, 0.025]
 }
-pub const FIELDS: [&str; 7] = [
+pub const FIELDS: [&str; 11] = [
     "panel_size",
     "panel_pin",
     "inspector_target",
@@ -18,6 +18,10 @@ pub const FIELDS: [&str; 7] = [
     "inspector_scripts_open",
     "inspector_script_id",
     "inspector_tree",
+    "resources_target",
+    "script_editor_target",
+    "script_editor_script_id",
+    "script_editor_scroll",
 ];
 
 pub fn valid_address(value: &Value) -> bool {
@@ -33,15 +37,15 @@ pub(crate) fn validate_field(id: &str, value: &Value) -> Result<(), String> {
         }),
         "panel_size" => serde_json::from_value::<[u32; 2]>(value.clone())
             .is_ok_and(|v| v.iter().all(|x| (256..=1536).contains(x))),
-        "inspector_target" => valid_address(value),
+        "inspector_target" | "resources_target" | "script_editor_target" => valid_address(value),
         "inspector_scripts_open" => value.is_boolean(),
-        "inspector_script_id" => {
+        "inspector_script_id" | "script_editor_script_id" => {
             value.is_null()
                 || value
                     .as_str()
                     .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
         }
-        "panel_scroll" => serde_json::from_value::<[f64; 2]>(value.clone())
+        "panel_scroll" | "script_editor_scroll" => serde_json::from_value::<[f64; 2]>(value.clone())
             .is_ok_and(|v| v.iter().all(|x| x.is_finite() && (0.0..=1.0).contains(x))),
         "panel_pin" => {
             value.is_null()
@@ -77,7 +81,7 @@ fn valid_screen(screen: &ScreenRect) -> bool {
 
 fn surface_components(object: &ObjectView) -> impl Iterator<Item = &'static crate::replication::ComponentRegistration> + '_ {
     crate::replication::REGISTRY.components.iter().filter(move |c| {
-        matches!(c.type_id, "WorldPanel" | "InspectorView" | "CreationView") && (c.present)(object)
+        matches!(c.type_id, "WorldPanel" | "InspectorView" | "CreationView" | "ResourcesView" | "ScriptEditorView") && (c.present)(object)
     })
 }
 
@@ -98,7 +102,10 @@ pub(crate) fn append_fields(object: &mut ObjectView, revisions: &Revisions) {
 
 pub(crate) fn validate_object(object: &ObjectView) -> Result<(), String> {
     let is_panel = matches!(object.visual, Visual::Panel);
-    let views = usize::from(object.inspector.is_some()) + usize::from(object.creation.is_some());
+    let views = usize::from(object.inspector.is_some())
+        + usize::from(object.creation.is_some())
+        + usize::from(object.resources.is_some())
+        + usize::from(object.script_editor.is_some());
     if is_panel != object.panel.is_some() || views != usize::from(is_panel) {
         return Err("Panel visual requires one surface and one content component".into());
     }
@@ -173,6 +180,55 @@ pub(crate) fn create_creation(
     Ok(object)
 }
 
+pub(crate) fn create_resources(
+    snapshot: &Snapshot,
+    target: Option<Address>,
+    position: [f64; 3],
+    rotation: [f64; 4],
+) -> Result<ObjectView, String> {
+    if target
+        .as_ref()
+        .is_some_and(|a| !snapshot.objects.iter().any(|o| &o.address == a))
+    {
+        return Err("Resources target no longer exists".into());
+    }
+    let mut object = create(snapshot, None, position, rotation)?;
+    object.inspector = None;
+    object.resources = Some(kokoverse_protocol::ResourcesView {
+        target,
+        scroll: [0.0; 2],
+    });
+    object.fields.iter_mut().find(|f| f.id == "name").unwrap().value = json!("Resources");
+    crate::set_default_collider(&mut object);
+    Ok(object)
+}
+
+pub(crate) fn create_script_editor(
+    snapshot: &Snapshot,
+    target: Option<Address>,
+    script_id: Option<String>,
+    position: [f64; 3],
+    rotation: [f64; 4],
+) -> Result<ObjectView, String> {
+    if target
+        .as_ref()
+        .is_some_and(|a| !snapshot.objects.iter().any(|o| &o.address == a))
+    {
+        return Err("Script editor target no longer exists".into());
+    }
+    let mut object = create(snapshot, None, position, rotation)?;
+    object.inspector = None;
+    object.script_editor = Some(kokoverse_protocol::ScriptEditorView {
+        target,
+        script_id,
+        scroll: [0.0; 2],
+    });
+    object.panel.as_mut().unwrap().size = [1120, 960];
+    object.fields.iter_mut().find(|f| f.id == "name").unwrap().value = json!("Script Editor");
+    crate::set_default_collider(&mut object);
+    Ok(object)
+}
+
 pub(crate) fn write_field(world: &mut World, entity: Entity, field: &str, value: Value) {
     match field {
         "inspector_tree" => world.get_mut::<InspectorView>(entity).unwrap().0.tree = serde_json::from_value(value).unwrap(),
@@ -218,8 +274,36 @@ pub(crate) fn write_field(world: &mut World, entity: Entity, field: &str, value:
                 serde_json::from_value(value).unwrap()
         }
         "panel_scroll" => {
-            world.get_mut::<InspectorView>(entity).unwrap().0.scroll =
-                serde_json::from_value(value).unwrap()
+            if world.get::<InspectorView>(entity).is_some() {
+                world.get_mut::<InspectorView>(entity).unwrap().0.scroll =
+                    serde_json::from_value(value).unwrap();
+            } else if world.get::<ResourcesView>(entity).is_some() {
+                world.get_mut::<ResourcesView>(entity).unwrap().0.scroll =
+                    serde_json::from_value(value).unwrap();
+            }
+        }
+        "resources_target" => {
+            world.get_mut::<ResourcesView>(entity).unwrap().0.target =
+                serde_json::from_value(value).unwrap();
+        }
+        "script_editor_target" => {
+            let mut view = world.get_mut::<ScriptEditorView>(entity).unwrap();
+            view.0.target = serde_json::from_value(value).unwrap();
+            view.0.script_id = None;
+            *world
+                .get_mut::<Revisions>(entity)
+                .unwrap()
+                .0
+                .entry("script_editor_script_id".into())
+                .or_default() += 1;
+        }
+        "script_editor_script_id" => {
+            world.get_mut::<ScriptEditorView>(entity).unwrap().0.script_id =
+                serde_json::from_value(value).unwrap();
+        }
+        "script_editor_scroll" => {
+            world.get_mut::<ScriptEditorView>(entity).unwrap().0.scroll =
+                serde_json::from_value(value).unwrap();
         }
         _ => unreachable!(),
     }
@@ -247,6 +331,24 @@ pub(crate) fn target_removed(world: &mut World, address: &Address) {
         .collect();
     for e in affected {
         apply_field(world, e, "inspector_target", Value::Null);
+    }
+    let resources: Vec<_> = world
+        .query::<(Entity, &ResourcesView)>()
+        .iter(world)
+        .filter(|(_, v)| v.0.target.as_ref() == Some(address))
+        .map(|(e, _)| e)
+        .collect();
+    for e in resources {
+        apply_field(world, e, "resources_target", Value::Null);
+    }
+    let editors: Vec<_> = world
+        .query::<(Entity, &ScriptEditorView)>()
+        .iter(world)
+        .filter(|(_, v)| v.0.target.as_ref() == Some(address))
+        .map(|(e, _)| e)
+        .collect();
+    for e in editors {
+        apply_field(world, e, "script_editor_target", Value::Null);
     }
 }
 

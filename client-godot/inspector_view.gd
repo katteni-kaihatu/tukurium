@@ -141,7 +141,6 @@ func build_body(body: Container) -> void:
 	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_child(details)
 	tabs.add_tab("Object")
-	tabs.add_tab("Scripts")
 	tabs.tab_changed.connect(select_tab)
 	details.add_child(tabs)
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -150,12 +149,13 @@ func build_body(body: Container) -> void:
 	fields_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	fields_box.add_theme_constant_override("separation", 10)
 	scroll.add_child(fields_box)
+	# Script editing lives on the shared Script Editor WorldPanel.
 	script_mount = MarginContainer.new()
-	script_mount.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	details.add_child(script_mount)
 	script_mount.hide()
+	details.add_child(script_mount)
 	script_view = SHARED_SCRIPT_VIEW.new()
 	script_view.setup(manager,panel_id,script_mount)
+	script_view.active = false
 
 func add_button(parent: Node, text: String, action: Callable) -> Button:
 	var button := Button.new()
@@ -267,8 +267,13 @@ func build_fields() -> void:
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		label.add_theme_font_size_override("font_size", 21)
 		row.add_child(label)
-		add_button(row, "Edit", open_script.bind(str(script.id)))
-	add_button(field_container, "Manage scripts", open_script.bind(""))
+		add_button(row, "Script Editor で開く", open_script.bind(str(script.id)))
+	add_button(field_container, "Resources で作成 / Script Editor", open_script.bind(""))
+	var hint := Label.new()
+	hint.text = "作成は Resources、編集は Script Editor（共有パネル）。"
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_font_size_override("font_size", 14)
+	field_container.add_child(hint)
 
 func build_component_actions(object: Dictionary) -> void:
 	component_actions.visible = object.get("panel") == null
@@ -451,7 +456,10 @@ func open_driver(field: String) -> void:
 
 func open_script(id: String) -> void:
 	finish_all()
-	requested_script = id if not id.is_empty() else "*"
+	if id.is_empty():
+		manager.open_resources(target_id)
+	else:
+		manager.open_script_editor(target_id, id)
 
 func choose_target(id: String) -> void:
 	finish_all()
@@ -577,20 +585,17 @@ func refresh(object: Dictionary) -> void:
 		pending_field = ""
 	refresh_pages(object)
 
-func refresh_pages(object: Dictionary) -> void:
-	var show_scripts: bool = object.inspector.get("scripts_open",false)
+func refresh_pages(_object: Dictionary) -> void:
 	tabs.set_block_signals(true)
-	tabs.current_tab = 1 if show_scripts else 0
+	tabs.current_tab = 0
 	tabs.set_block_signals(false)
-	script_mount.visible = show_scripts
+	script_mount.visible = false
+	script_view.active = false
 	component_actions.visible = manager.app.objects.get(target_id, {}).get("panel") == null
-	scroll.visible = not show_scripts
-	script_view.active = show_scripts
-	if show_scripts: script_view.refresh(target_id, object.inspector.get("script_id"))
+	scroll.visible = true
 
-func select_tab(index: int) -> void:
-	finish_all()
-	pending_shared_tab = index
+func select_tab(_index: int) -> void:
+	pass
 
 func restore_scroll(object: Dictionary) -> void:
 	var bar := scroll.get_v_scroll_bar()
@@ -758,21 +763,14 @@ func tick() -> void:
 		open_script(pending_driver_script)
 		pending_driver_owner = ""
 		pending_driver_script = ""
-	if edits.is_empty() and not script_view.busy() and pending_shared_tab >= 0:
-		var selected := pending_shared_tab
-		pending_shared_tab = -1
-		write_view_field("inspector_scripts_open", selected == 1)
-	if edits.is_empty() and not script_view.busy() and not requested_script.is_empty():
+	if edits.is_empty() and not requested_script.is_empty():
 		var id := requested_script
 		requested_script = ""
 		show_requested_script(id)
 	refresh_sessions()
 
 func show_requested_script(id: String) -> void:
-	if id == "*": write_view_field("inspector_scripts_open",true)
-	else:
-		write_view_field("inspector_script_id",id,func(result):
-			if result.ok: write_view_field("inspector_scripts_open",true))
+	open_script("" if id == "*" else id)
 
 func write_view_field(field: String, value: Variant, callback: Callable = Callable()) -> void:
 	manager.edit(panel_id, field, value, callback)

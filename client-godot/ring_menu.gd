@@ -4,8 +4,8 @@ signal chosen(index: int)
 signal cancelled
 const INNER := 72.0
 const OUTER := 178.0
-const LABELS := ["Inspector 2D", "Inspector 3D", "新規作成…", "読み込み"]
-const ICONS := ["▣", "◇", "+", "↓"]
+const LABELS := ["Inspector 2D", "Inspector 3D", "新規作成…", "Resources"]
+const ICONS := ["▣", "◇", "+", "▤"]
 var center := Vector2.ZERO
 var hovered := -1
 var target_name := ""

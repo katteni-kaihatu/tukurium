@@ -61,6 +61,22 @@ pub struct InspectorView {
     pub tree: InspectorTree,
 }
 
+/// Shared board listing Slot hierarchy and Script components for a project workspace.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ResourcesView {
+    pub target: Option<Address>,
+    pub scroll: [f64; 2],
+}
+
+/// Shared Script editor board (definition + state as one ScriptComponent on a Slot).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ScriptEditorView {
+    pub target: Option<Address>,
+    #[serde(default)]
+    pub script_id: Option<String>,
+    pub scroll: [f64; 2],
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct InspectorTree {
     pub root: Option<Address>,

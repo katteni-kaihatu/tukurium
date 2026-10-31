@@ -14,6 +14,7 @@ Rustが共有ワールドの正本を持ち、Godotが入力と描画を担当�
 | エージェントが作業するときの既定方針 | [AGENTS.md](../AGENTS.md) |
 | 配布版をビルドし、ZIPと展開済み版を検証する | [Windows配布版のビルド手順](../docs/windows-build.md) |
 | 現在の操作方法 | [インスペクタの操作](../docs/inspector-controls.md) |
+| ローカル Project と Resources | [Projects](../docs/projects.md) |
 | ECS・通信・保存の実装詳細 | [ランタイム構成](../docs/runtime.md) |
 | 共有WriteとローカルDriveの違い | [UGCのローカル実行](../docs/ugc-driving.md) |
 | 機能コンポーネントのオン・オフとECSの境界 | [機能コンポーネントの有効状態](component-enablement.md) |

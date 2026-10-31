@@ -201,7 +201,7 @@ func build_dock() -> void:
 	dock=HBoxContainer.new()
 	dock.add_theme_constant_override("separation",10)
 	holder.add_child(dock)
-	for item in [["sessions","⌂","セッション"],["library","▦","インベントリ"],["workshop","✦","ワークショップ"],["camera","◉","カメラ"],["inspector","▣","インスペクタ"],["settings","⚙","設定"]]:
+	for item in [["sessions","⌂","セッション"],["projects","◇","Projects"],["library","▦","インベントリ"],["workshop","✦","ワークショップ"],["camera","◉","カメラ"],["inspector","▣","インスペクタ"],["resources","▤","Resources"],["scripts","⌘","Scripts"],["settings","⚙","設定"]]:
 		var key: String=item[0]
 		var tile := Button.new()
 		tile.text=item[1]+"\n"+item[2]
@@ -218,6 +218,8 @@ func build_dock() -> void:
 		dock.add_child(tile)
 		dock_buttons[key]=tile
 	dock_buttons.inspector.hide()
+	dock_buttons.resources.hide()
+	dock_buttons.scripts.hide()
 	holder.hide()
 
 func refresh_edit_mode() -> void:
@@ -227,6 +229,8 @@ func refresh_edit_mode() -> void:
 		tile.add_theme_stylebox_override("normal",style(Color("245750") if active else Color.TRANSPARENT,8))
 		tile.add_theme_color_override("font_color",ACCENT if active else MUTED)
 	dock_buttons.inspector.visible=app.edit_mode
+	dock_buttons.resources.visible=app.edit_mode
+	dock_buttons.scripts.visible=app.edit_mode
 
 func set_edit_mode(enabled: bool) -> void:
 	if app.edit_mode==enabled: return
@@ -269,6 +273,10 @@ func set_dock_open(open: bool, animate: bool = true) -> void:
 func open_dock(key: String) -> void:
 	if key=="inspector":
 		if app.edit_mode: app.world_panels.pin_target(app.selected_id)
+	elif key=="resources":
+		if app.edit_mode: app.world_panels.open_resources(app.selected_id)
+	elif key=="scripts":
+		if app.edit_mode: app.world_panels.open_script_editor(app.selected_id)
 	elif key=="camera":
 		app.camera_tool.open(app.selected_id)
 	elif key=="settings":
@@ -349,8 +357,8 @@ func choose_action(index: int) -> void:
 		0: app.world_panels.pin_target(ring_target)
 		1: app.world_panels.open_inspector(ring_target)
 		2: open_creation()
-		3: app.choose_image()
-	if index in [1,2]: resume_view()
+		3: app.world_panels.open_resources(ring_target)
+	if index in [1,2,3]: resume_view()
 
 func handle_input(event: InputEvent) -> bool:
 	if event is InputEventKey and event.pressed and not event.echo:

@@ -312,7 +312,7 @@ func inspector_model(panel_id: String, mode: String) -> Dictionary:
 		"shapeIndex": 6,
 		"scripts": [],
 		"isPanelTarget": false,
-		"tab": "scripts" if app.objects[panel_id].inspector.get("scripts_open", false) else "object",
+		"tab": "object",
 	}
 	if target.is_empty() or not app.objects.has(target):
 		return model
@@ -321,14 +321,6 @@ func inspector_model(panel_id: String, mode: String) -> Dictionary:
 	model.sections = sections_for(target)
 	model.catalog = catalog_for(target)
 	model.scripts = scripts_for(target)
-	var script_id: Variant = app.objects[panel_id].inspector.get("script_id")
-	if script_id != null:
-		model.scriptId = str(script_id)
-		if script_cache.has(str(script_id)):
-			model.scriptText = script_cache[str(script_id)]
-	if app.objects[panel_id].inspector.get("scripts_open", false) and script_id != null:
-		var graph = graph_for(target, str(script_id))
-		if not graph.is_empty(): model.graph = graph
 	return model
 
 func object_list() -> Array:
@@ -588,15 +580,13 @@ func change_component(message: Dictionary) -> void:
 func open_script(message: Dictionary) -> void:
 	var panel := str(message.get("panel", ""))
 	var script := str(message.get("script", ""))
-	if panel.is_empty() or not app.objects.has(panel): return
-	app.world_panels.edit(panel, "inspector_scripts_open", true)
-	app.world_panels.edit(panel, "inspector_script_id", null if script.is_empty() else script, func(_r):
-		var target: String = app.world_panels.target_of(panel)
-		if not script.is_empty() and app.objects.has(target):
-			for entry in app.objects[target].get("scripts", []):
-				if str(entry.id) == script:
-					script_cache[script] = str(entry.get("source", ""))
-		push_panel(true))
+	var target: String = app.world_panels.target_of(panel) if not panel.is_empty() else str(app.selected_id)
+	if script.is_empty():
+		app.world_panels.open_resources(target)
+	else:
+		app.world_panels.open_script_editor(target, script)
+	app.world_panels.html_text_focus = false
+	focus_godot()
 
 func apply_script(message: Dictionary) -> void:
 	var target := str(message.get("target", ""))
@@ -655,5 +645,6 @@ func open_driver(message: Dictionary) -> void:
 	var owner := str(driver.get("owner_id", target))
 	if owner != target and app.objects.has(panel):
 		app.world_panels.edit(panel, "inspector_target", app.address_of(app.objects[owner]))
-	app.world_panels.edit(panel, "inspector_scripts_open", true)
-	app.world_panels.edit(panel, "inspector_script_id", str(driver.id), func(_r): push_panel(true))
+	app.world_panels.open_script_editor(owner, str(driver.id))
+	app.world_panels.html_text_focus = false
+	focus_godot()

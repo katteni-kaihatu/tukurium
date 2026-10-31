@@ -1,8 +1,10 @@
 extends MeshInstance3D
-## A shared surface. Content views render InspectorView or CreationView data.
+## A shared surface. Content views render Inspector / Creation / Resources / Script Editor data.
 ## Inspector boards prefer the HTML panel texture when the host is connected.
 const INSPECTOR_VIEW = preload("res://inspector_view.gd")
 const CREATION_VIEW = preload("res://creation_panel.gd")
+const RESOURCES_VIEW = preload("res://resources_view.gd")
+const SCRIPT_EDITOR_VIEW = preload("res://script_editor_view.gd")
 var panel_id := ""
 var viewport := SubViewport.new()
 var content
@@ -15,8 +17,16 @@ var using_html := false
 func setup(controller, id: String) -> void:
 	manager = controller
 	panel_id = id
-	inspector_content = manager.app.objects[id].get("creation") == null
-	content = INSPECTOR_VIEW.new() if inspector_content else CREATION_VIEW.new()
+	var object: Dictionary = manager.app.objects[id]
+	inspector_content = object.get("inspector") != null
+	if object.get("resources") != null:
+		content = RESOURCES_VIEW.new()
+	elif object.get("script_editor") != null:
+		content = SCRIPT_EDITOR_VIEW.new()
+	elif object.get("creation") != null:
+		content = CREATION_VIEW.new()
+	else:
+		content = INSPECTOR_VIEW.new()
 	var quad := QuadMesh.new()
 	quad.size = Vector2(1.2, 1.6)
 	mesh = quad

@@ -121,8 +121,11 @@ func panel_spawn_position(distance: float) -> Vector3:
 	return origin + forward*distance
 
 func target_of(id: String) -> String:
-	var inspector = app.objects.get(id, {}).get("inspector", null)
-	if inspector is Dictionary and inspector.get("target") != null: return str(inspector.target.instance_id)
+	var object: Dictionary = app.objects.get(id, {})
+	for key in ["inspector", "resources", "script_editor"]:
+		var view = object.get(key, null)
+		if view is Dictionary and view.get("target") != null:
+			return str(view.target.instance_id)
 	return ""
 
 func pinned_to_me(id: String) -> bool:
@@ -232,6 +235,25 @@ func open_creation() -> void:
 	command({"kind":"structure","command":{"action":"create_creation_panel","position":[position.x,position.y,position.z],"rotation":[q.x,q.y,q.z,q.w]}}, func(result):
 		if not result.ok: app.feedback.text = result.get("message","Cannot open creation panel"))
 
+func open_resources(target_id: String = "") -> void:
+	if not app.edit_mode or not app.editable: return
+	var position := panel_spawn_position(2.3)
+	var q: Quaternion = app.camera.global_basis.get_rotation_quaternion()
+	var resolved := target_id if not target_id.is_empty() else app.selected_id
+	var target: Variant = app.address_of(app.objects[resolved]) if app.objects.has(resolved) else null
+	command({"kind":"structure","command":{"action":"create_resources_panel","target":target,"position":[position.x,position.y,position.z],"rotation":[q.x,q.y,q.z,q.w]}}, func(result):
+		if not result.ok: app.feedback.text = str(result.get("message", "Cannot open Resources")))
+
+func open_script_editor(target_id: String = "", script_id: String = "") -> void:
+	if not app.edit_mode or not app.editable: return
+	var position := panel_spawn_position(2.4)
+	var q: Quaternion = app.camera.global_basis.get_rotation_quaternion()
+	var resolved := target_id if not target_id.is_empty() else app.selected_id
+	var target: Variant = app.address_of(app.objects[resolved]) if app.objects.has(resolved) else null
+	var sid: Variant = script_id if not script_id.is_empty() else null
+	command({"kind":"structure","command":{"action":"create_script_editor_panel","target":target,"script_id":sid,"position":[position.x,position.y,position.z],"rotation":[q.x,q.y,q.z,q.w]}}, func(result):
+		if not result.ok: app.feedback.text = str(result.get("message", "Cannot open Script Editor")))
+
 func duplicate_panel(id: String) -> void:
 	if not app.objects.has(id): return
 	command({"kind":"structure","command":{"action":"duplicate","target":app.address_of(app.objects[id]),"expected_revision":app.objects[id].object_revision}})
@@ -305,7 +327,8 @@ func close_window(id: String, force: bool = false) -> void:
 func views() -> Array:
 	var result: Array = []
 	for panel in panels.values():
-		if panel.inspector_content: result.append(panel.content)
+		if panel.content.get("script_view") != null:
+			result.append(panel.content)
 	for window in windows.values(): result.append(window.get_meta("inspector"))
 	return result
 
@@ -389,7 +412,7 @@ func route_input(event: InputEvent) -> bool:
 			var graph_hit := pick(event.position)
 			if not graph_hit.is_empty():
 				var panel = panels[graph_hit.id]
-				if panel.inspector_content and panel.content.script_mount.visible:
+				if panel.content.get("script_view") != null and panel.content.get("script_mount") != null and panel.content.script_mount.visible:
 					var graph = panel.content.script_view.editor.graph
 					if graph.visible and graph.canvas.get_global_rect().has_point(graph_hit.position):
 						panel.forward_pointer(InputEventMouseMotion.new(),graph_hit.position)

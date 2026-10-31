@@ -466,6 +466,50 @@ pub static REGISTRY: LazyLock<Registry> = LazyLock::new(|| Registry {
             apply: |w, e, _, v| w.get_mut::<crate::components::CreationView>(e).unwrap().0.shape = parse(&v).unwrap(),
         },
         ComponentRegistration {
+            type_id: "ResourcesView",
+            local_id: 20,
+            fields: vec![
+                editable("resources_target", "Selected slot", "address", 29, inspector_target),
+                editable("panel_scroll", "Scroll", "panel_scroll", 30, panel_scroll),
+            ],
+            present: |o| o.resources.is_some(),
+            project: |o| {
+                let r = o.resources.as_ref().unwrap();
+                json!({"resources_target":r.target,"panel_scroll":r.scroll})
+            },
+            restore: |o, v| {
+                o.resources = Some(kokoverse_protocol::ResourcesView {
+                    target: parse(&v["resources_target"])?,
+                    scroll: parse(&v["panel_scroll"])?,
+                });
+                Ok(())
+            },
+            apply: |w, e, id, v| crate::panels::write_field(w, e, id, v),
+        },
+        ComponentRegistration {
+            type_id: "ScriptEditorView",
+            local_id: 21,
+            fields: vec![
+                editable("script_editor_target", "Script slot", "address", 31, inspector_target),
+                editable("script_editor_script_id", "Selected script", "script_id", 32, inspector_script_id),
+                editable("script_editor_scroll", "Scroll", "panel_scroll", 33, panel_scroll),
+            ],
+            present: |o| o.script_editor.is_some(),
+            project: |o| {
+                let s = o.script_editor.as_ref().unwrap();
+                json!({"script_editor_target":s.target,"script_editor_script_id":s.script_id,"script_editor_scroll":s.scroll})
+            },
+            restore: |o, v| {
+                o.script_editor = Some(kokoverse_protocol::ScriptEditorView {
+                    target: parse(&v["script_editor_target"])?,
+                    script_id: parse(&v["script_editor_script_id"])?,
+                    scroll: parse(&v["script_editor_scroll"])?,
+                });
+                Ok(())
+            },
+            apply: |w, e, id, v| crate::panels::write_field(w, e, id, v),
+        },
+        ComponentRegistration {
             type_id: "WorldText",
             local_id: 11,
             fields: vec![
