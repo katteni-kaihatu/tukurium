@@ -51,6 +51,12 @@ pub struct InspectorView(pub kokoverse_protocol::InspectorView);
 pub struct CreationView(pub kokoverse_protocol::CreationView);
 
 #[derive(Component, Clone)]
+pub struct ResourcesView(pub kokoverse_protocol::ResourcesView);
+
+#[derive(Component, Clone)]
+pub struct ScriptEditorView(pub kokoverse_protocol::ScriptEditorView);
+
+#[derive(Component, Clone)]
 pub struct WorldText(pub kokoverse_protocol::WorldText);
 
 #[derive(Component, Clone, Copy)]

@@ -198,6 +198,10 @@ pub struct ObjectView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creation: Option<CreationView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ResourcesView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_editor: Option<ScriptEditorView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world_text: Option<WorldText>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mirror: Option<bool>,
@@ -350,6 +354,17 @@ pub enum StructuralOperation {
         rotation: [f64; 4],
     },
     CreateCreationPanel {
+        position: [f64; 3],
+        rotation: [f64; 4],
+    },
+    CreateResourcesPanel {
+        target: Option<Address>,
+        position: [f64; 3],
+        rotation: [f64; 4],
+    },
+    CreateScriptEditorPanel {
+        target: Option<Address>,
+        script_id: Option<String>,
         position: [f64; 3],
         rotation: [f64; 4],
     },

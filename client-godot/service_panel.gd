@@ -24,6 +24,7 @@ var session_name: LineEdit
 var sessions: VBoxContainer
 var library: GridContainer
 var workshop: GridContainer
+var projects: VBoxContainer
 var current_user: Dictionary = {}
 var current_session: Dictionary = {}
 var enabled := false
@@ -31,10 +32,15 @@ var auto_login := false
 var open_button: Button
 var library_offset := 0
 var workshop_offset := 0
+var projects_offset := 0
 var load_world := ""
 var world_choice: Label
 var library_query: LineEdit
 var workshop_query: LineEdit
+var projects_query: LineEdit
+var project_slug: LineEdit
+var project_name: LineEdit
+var project_description: TextEdit
 var mine_only: CheckBox
 var page := "sessions"
 var heading: Label
@@ -44,14 +50,17 @@ var selected := {}
 var selection_kind := ""
 var library_total := 0
 var workshop_total := 0
+var projects_total := 0
 var library_page: Label
 var workshop_page: Label
+var projects_page: Label
 var save_button: Button
 var login_button: Button
 var back_button: Button
 var library_generation := 0
 var workshop_generation := 0
-var detail_generations := {"library":0,"workshop":0}
+var projects_generation := 0
+var detail_generations := {"library":0,"workshop":0,"projects":0}
 var body_font: SystemFont
 var title_font: SystemFont
 var publish_dialog: ConfirmationDialog
@@ -176,11 +185,11 @@ func setup(scene) -> void:
 	theme.set_color("title_color","Window",INK)
 	theme.set_stylebox("embedded_border","Window",box(GROUND,14,LINE,12))
 	var screen: Vector2=app.get_viewport().get_visible_rect().size
-	var sizes := {"sessions":Vector2(790,585),"library":Vector2(1010,600),"workshop":Vector2(1010,600)}
-	var positions := {"sessions":Vector2(104,88),"library":Vector2(145,96),"workshop":Vector2(185,106)}
-	var titles := {"sessions":"セッション","library":"インベントリ","workshop":"ワークショップ"}
-	var descriptions := {"sessions":"一緒に作る場所を選ぶ。","library":"保存した作品を配置・共有する。","workshop":"公開された作品を探す。"}
-	for key in ["sessions","library","workshop"]:
+	var sizes := {"sessions":Vector2(790,585),"library":Vector2(1010,600),"workshop":Vector2(1010,600),"projects":Vector2(1010,600)}
+	var positions := {"sessions":Vector2(104,88),"library":Vector2(145,96),"workshop":Vector2(185,106),"projects":Vector2(165,100)}
+	var titles := {"sessions":"セッション","library":"インベントリ","workshop":"ワークショップ","projects":"Projects"}
+	var descriptions := {"sessions":"一緒に作る場所を選ぶ。","library":"保存した作品を配置・共有する。","workshop":"公開された作品を探す。","projects":"ローカルのリポジトリ相当。この端末の Engine データにだけ保存します。"}
+	for key in ["sessions","library","workshop","projects"]:
 		var frame=DesktopWindow.new()
 		shade.add_child(frame)
 		frame.size=Vector2(minf(sizes[key].x,screen.x-40),minf(sizes[key].y,screen.y-170))
@@ -246,9 +255,12 @@ func setup(scene) -> void:
 		elif key=="library":
 			build_library(pane)
 			empty_state(library,"まだ作品を表示できません","セッション画面でHNを入力すると、保存した作品を開けます。")
-		else:
+		elif key=="workshop":
 			build_workshop(pane)
 			empty_state(workshop,"まだ作品を表示できません","セッション画面でHNを入力すると、公開作品を探せます。")
+		else:
+			build_projects(pane)
+			empty_state(projects,"まだ Project がありません","slug と表示名を入れて作成してください。保存はこの端末のみです。")
 		if key!="sessions":
 			var panel := surface(workspace)
 			panel.custom_minimum_size.x=292
@@ -259,7 +271,7 @@ func setup(scene) -> void:
 			details.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 			details.custom_minimum_size.x=252
 			detail_boxes[key]=details
-		var feedback := paragraph("HNを入力してStartを押してください。" if key=="sessions" else "",12)
+		var feedback := paragraph("HNを入力してStartを押してください。" if key=="sessions" else ("ローカルのみ · asset-server には載せません。" if key=="projects" else ""),12)
 		main.add_child(feedback)
 		status_labels[key]=feedback
 		pane.resized.connect(update_columns)
@@ -268,6 +280,7 @@ func setup(scene) -> void:
 	status=status_labels.sessions
 	show_detail_empty("library")
 	show_detail_empty("workshop")
+	show_detail_empty("projects")
 
 func build_sessions(parent: VBoxContainer) -> void:
 	var panel := surface(parent)
@@ -328,6 +341,38 @@ func build_workshop(parent: VBoxContainer) -> void:
 		if workshop_offset+12<workshop_total: workshop_offset+=12; refresh_workshop()
 	)
 
+func build_projects(parent: VBoxContainer) -> void:
+	var create := surface(parent,PAPER,12)
+	var form := column(create,8)
+	form.add_child(text("新しい Project",17,INK,true))
+	form.add_child(paragraph("slug は小文字・数字・ハイフン。ワールド快照はこの端末の data_root に保存されます。",12))
+	var slug_row := row(form)
+	project_slug=field(slug_row,"slug")
+	project_slug.max_length=40
+	project_name=field(slug_row,"表示名")
+	project_name.max_length=80
+	project_description=TextEdit.new()
+	project_description.custom_minimum_size=Vector2(0,72)
+	project_description.placeholder_text="説明（任意）"
+	project_description.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	form.add_child(project_description)
+	button(form,"作成",create_project,true)
+	var tools := row(parent)
+	projects_query=field(tools,"Projects を検索")
+	projects_query.text_submitted.connect(func(_value): projects_offset=0; refresh_projects())
+	button(tools,"検索",func(): projects_offset=0; refresh_projects())
+	button(tools,"更新",refresh_projects)
+	projects=scrolling_column(parent)
+	var pager := row(parent)
+	button(pager,"前へ",func(): projects_offset=maxi(0,projects_offset-10); refresh_projects())
+	projects_page=text("0 件",12,MUTED)
+	projects_page.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	projects_page.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
+	pager.add_child(projects_page)
+	button(pager,"次へ",func():
+		if projects_offset+10<projects_total: projects_offset+=10; refresh_projects()
+	)
+
 func scrolling_column(parent: Node) -> VBoxContainer:
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
@@ -371,7 +416,7 @@ func switch_page(value: String, refresh_data: bool = true) -> void:
 		save_button.disabled=app.current.is_empty() or current_session.is_empty()
 		save_button.tooltip_text="ワールドでアイテムを選択してから保存します。" if save_button.disabled else "見た目・設定・ロジックを保存します。"
 	update_columns.call_deferred()
-	if refresh_data and not current_user.is_empty(): refresh()
+	if refresh_data and (value=="projects" or not current_user.is_empty()): refresh()
 
 func close_page(value: String) -> void:
 	if windows.has(value): windows[value].hide()
@@ -442,6 +487,7 @@ func receive_state(body: Dictionary) -> void:
 		else:
 			if windows.library.visible: refresh_library()
 			if windows.workshop.visible: refresh_workshop()
+		if windows.projects.visible: refresh_projects()
 	name_input.editable=current_session.is_empty()
 	login_button.disabled=not current_session.is_empty()
 	save_button.disabled=app.current.is_empty() or current_session.is_empty()
@@ -469,7 +515,7 @@ func open_page(value: String) -> void:
 func call_service(action: String, values: Dictionary, completed: Callable, failed: Callable = Callable(), feedback_page: String = "") -> void:
 	var feedback: Label=status_labels.get(page if feedback_page.is_empty() else feedback_page,status)
 	if not app.connected: feedback.text="接続を待っています…"; return
-	feedback.text="読み込み中…" if action in ["library","workshop","workshop_detail","version","sessions"] else "処理しています…"
+	feedback.text="読み込み中…" if action in ["library","workshop","workshop_detail","version","sessions","projects","project"] else "処理しています…"
 	var body := values.duplicate(true)
 	body.kind="service"
 	body.action=action
@@ -486,7 +532,80 @@ func call_service(action: String, values: Dictionary, completed: Callable, faile
 func refresh() -> void:
 	if page=="sessions": refresh_sessions()
 	elif page=="library": refresh_library()
+	elif page=="projects": refresh_projects()
 	else: refresh_workshop()
+
+func create_project() -> void:
+	var slug: String=project_slug.text.strip_edges().to_lower()
+	if slug.is_empty():
+		status_labels.projects.text="slug を入力してください。"
+		project_slug.grab_focus()
+		return
+	call_service("create_project",{
+		"slug":slug,
+		"display_name":project_name.text.strip_edges(),
+		"description":project_description.text.strip_edges(),
+	},func(record):
+		project_slug.text=""
+		project_name.text=""
+		project_description.text=""
+		projects_offset=0
+		refresh_projects()
+		select_project(record)
+		status_labels.projects.text="Project を作成しました（ローカル）。"
+	,Callable(),"projects")
+
+func refresh_projects() -> void:
+	call_service("projects",{"offset":projects_offset,"query":projects_query.text if projects_query else ""},func(data):
+		projects_generation+=1
+		clear_list(projects)
+		var entries: Array=data.get("entries",[]) if data is Dictionary else []
+		projects_total=int(data.get("total",entries.size()) if data is Dictionary else entries.size())
+		projects_page.text="%d 件" % projects_total
+		if entries.is_empty():
+			empty_state(projects,"まだ Project がありません","slug と表示名を入れて作成してください。保存はこの端末のみです。")
+			return
+		for record in entries:
+			var card := surface(projects)
+			var contents := row(card)
+			var labels := column(contents,3)
+			labels.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+			var title := text(str(record.get("display_name",record.get("slug",""))),17,INK,true)
+			title.auto_translate_mode=Node.AUTO_TRANSLATE_MODE_DISABLED
+			labels.add_child(title)
+			var meta := text("%s · scripts %s · ローカル" % [str(record.get("slug","")), str(record.get("script_count",0))],12,MUTED)
+			meta.auto_translate_mode=Node.AUTO_TRANSLATE_MODE_DISABLED
+			labels.add_child(meta)
+			button(contents,"詳細",func(): select_project(record))
+	,Callable(),"projects")
+
+func select_project(record: Dictionary) -> void:
+	selected=record
+	selection_kind="projects"
+	detail_generations.projects+=1
+	var generation: int=detail_generations.projects
+	call_service("project",{"slug":str(record.get("slug",""))},func(data):
+		if generation!=detail_generations.projects: return
+		show_project_detail(data)
+	,Callable(),"projects")
+
+func show_project_detail(data: Dictionary) -> void:
+	var box_node: VBoxContainer=detail_boxes.projects
+	clear_list(box_node)
+	box_node.add_child(text(str(data.get("display_name",data.get("slug",""))),20,INK,true))
+	box_node.add_child(paragraph("slug  %s" % str(data.get("slug","")),13,MUTED))
+	box_node.add_child(paragraph(str(data.get("description","")) if not str(data.get("description","")).is_empty() else "説明なし",13))
+	box_node.add_child(paragraph("Resources（Script）  %s" % str(data.get("script_count",0)),13,MUTED))
+	box_node.add_child(paragraph("この端末の Engine data_root にだけ保存されます。asset-server には載せません。",12,MUTED))
+	button(box_node,"ワークスペースで開く",func(): open_project_workspace(str(data.get("slug",""))),true)
+	button(box_node,"更新",func(): select_project(data))
+
+func open_project_workspace(slug: String) -> void:
+	if slug.is_empty(): return
+	call_service("open_project_workspace",{"slug":slug},func(_v):
+		close_all()
+		status_labels.projects.text="ワークスペースを開きました。"
+	,Callable(),"projects")
 
 func create_session() -> void:
 	if session_name.text.strip_edges().is_empty(): status_labels.sessions.text="セッション名を入力してください。"; session_name.grab_focus(); return
@@ -606,8 +725,12 @@ func show_detail_empty(kind: String = "") -> void:
 	if not detail_boxes.has(kind): return
 	var target_box: VBoxContainer=detail_boxes[kind]
 	clear_list(target_box)
-	target_box.add_child(text("作品の詳細",18,INK,true))
-	target_box.add_child(paragraph("作品を選ぶと、内容を確認できます。",13))
+	if kind=="projects":
+		target_box.add_child(text("Project の詳細",18,INK,true))
+		target_box.add_child(paragraph("一覧から選ぶと、説明と「ワークスペースで開く」が出ます。",13))
+	else:
+		target_box.add_child(text("作品の詳細",18,INK,true))
+		target_box.add_child(paragraph("作品を選ぶと、内容を確認できます。",13))
 
 func select_item(record: Dictionary, kind: String) -> void:
 	switch_page(kind,false)

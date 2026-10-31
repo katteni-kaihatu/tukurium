@@ -165,6 +165,30 @@ impl Service {
                 effect: Effect::Leave,
             });
         }
+        if let Some(local) = crate::projects::handle(&self.data_root, &action, &body)? {
+            return Ok(Completion {
+                response: local,
+                effect: Effect::None,
+            });
+        }
+        if action == "open_project_workspace" {
+            let slug = body["slug"].as_str().ok_or("Missing project slug")?.to_string();
+            let detail = crate::projects::get(&self.data_root, &slug)?;
+            let world = crate::projects::world_path(&self.data_root, &slug);
+            if !world.is_file() {
+                return Err("Project world is missing".into());
+            }
+            let name = detail["display_name"].as_str().unwrap_or(&slug);
+            let mut v = client
+                .rpc(json!({"action":"create_session","name": format!("project:{name}")}))
+                .await?;
+            v["load_world"] = json!(world.to_string_lossy());
+            v["project_slug"] = json!(slug);
+            return Ok(Completion {
+                response: v.clone(),
+                effect: Effect::Join(v),
+            });
+        }
         let load_world = body.as_object_mut().and_then(|o| o.remove("load_world"));
         let mut v = client.rpc(body).await?;
         if action == "create_session"

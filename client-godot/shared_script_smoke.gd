@@ -40,11 +40,10 @@ func run() -> void:
 	if not await until(func(): return scene.editable and not scene.current.is_empty(),"Scene not ready"): quit(1); return
 	scene.hud.set_edit_mode(true)
 	var target: String = scene.selected_id
-	for _i in 2: scene.world_panels.open_inspector(target)
-	if not await until(func(): return scene.world_panels.panels.size() == 2,"Shared inspectors missing"): quit(1); return
-	var panels: Array = scene.world_panels.panels.values()
-	for panel in panels: panel.content.tabs.current_tab = 1
-	if not await until(func(): return panels[0].content.script_mount.visible and panels[1].content.script_mount.visible,"Scripts tabs did not sync"): quit(1); return
+	for _i in 2: scene.world_panels.open_script_editor(target)
+	if not await until(func(): return scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null).size() == 2,"Shared Script Editors missing"): quit(1); return
+	var panels: Array = scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null)
+	if not await until(func(): return panels[0].content.script_mount.visible and panels[1].content.script_mount.visible,"Script Editor mounts did not open"): quit(1); return
 	var a = panels[0].content.script_view
 	var b = panels[1].content.script_view
 	if not await until(func(): return not a.document.is_empty() and not b.document.is_empty(),"Documents did not open"): quit(1); return
@@ -91,7 +90,7 @@ func run() -> void:
 			panels[0].viewport.get_texture().get_image().save_png(arg.trim_prefix("--screenshot="))
 	# Use the actual FPS ray/input path for removal and creation, not signal-only tests.
 	scene.world_panels.close_panel(panels[1].panel_id)
-	if not await until(func(): return scene.world_panels.panels.size()==1,"Extra inspector did not close"): quit(1); return
+	if not await until(func(): return scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null).size()==1,"Extra Script Editor did not close"): quit(1); return
 	var panel = panels[0]
 	scene.set_view_mode(1)
 	scene.orbit_yaw = 0
@@ -119,10 +118,9 @@ func run() -> void:
 	if not await until(func(): return scene.objects[target].get("scripts",[]).size() == 1 and a.editor.pending_id.is_empty() and a.editor.is_graph(),"FPS node graph creation failed"): quit(1); return
 	if not a.document.is_empty() or not a.editor.graph.visible:
 		push_error("Graph editor incorrectly uses the Lua text draft"); quit(1); return
-	scene.world_panels.open_inspector(target)
-	if not await until(func(): return scene.world_panels.panels.size() == 2,"Second graph inspector missing"): quit(1); return
-	var other = scene.world_panels.panels.values().filter(func(p): return p.panel_id != panel.panel_id)[0]
-	other.content.tabs.current_tab = 1
+	scene.world_panels.open_script_editor(target)
+	if not await until(func(): return scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null).size() == 2,"Second Script Editor missing"): quit(1); return
+	var other = scene.world_panels.panels.values().filter(func(p): return p.panel_id != panel.panel_id and p.content.get("script_view") != null)[0]
 	var graph_peer = other.content.script_view
 	if not await until(func(): return not a.graph_document.is_empty() and not graph_peer.graph_document.is_empty(),"Graph drafts did not open on both panels"): quit(1); return
 	var original_graph: String = scene.objects[target].scripts[0].source

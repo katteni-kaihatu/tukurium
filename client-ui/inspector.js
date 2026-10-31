@@ -59,9 +59,7 @@
     const tabs = el("div", "tabs");
     const objectTab = el("button", "tab", "Object");
     objectTab.dataset.tab = "object";
-    const scriptsTab = el("button", "tab", "Scripts");
-    scriptsTab.dataset.tab = "scripts";
-    tabs.append(objectTab, scriptsTab);
+    tabs.append(objectTab);
     const body = el("div", "inspector-body");
     const tree = el("aside", "tree");
     tree.id = "tree";
@@ -74,14 +72,7 @@
     root.append(shell);
     pin.addEventListener("click", () => post({ type: "command", name: "inspector" }));
     close.addEventListener("click", () => post({ type: "command", name: "inspector" }));
-    tabs.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-tab]");
-      if (!button) return;
-      state.tab = button.dataset.tab;
-      if (state.view) render(state.view);
-      if (state.tab === "scripts") post({ type: "command", name: "scripts_tab", open: true, panel: state.view && state.view.panelId });
-      else post({ type: "command", name: "scripts_tab", open: false, panel: state.view && state.view.panelId });
-    });
+    state.tab = "object";
     main.addEventListener("change", onChange);
     main.addEventListener("click", onClick);
     tree.addEventListener("click", onTreeClick);
@@ -148,28 +139,8 @@
       return;
     }
     if (action === "open_script") {
-      state.tab = "scripts";
       state.scriptId = button.dataset.script || "";
       post({ type: "command", name: "open_script", panel, script: state.scriptId });
-      render(state.view);
-      return;
-    }
-    if (action === "apply_script") {
-      post({ type: "command", name: "script_apply", panel, target: state.view.target, script: state.scriptId, source: state.scriptText });
-      state.dirtyScript = false;
-      return;
-    }
-    if (action === "reload_script") {
-      state.dirtyScript = false;
-      post({ type: "command", name: "open_script", panel, script: state.scriptId });
-      return;
-    }
-    if (action === "graph_add") {
-      post({ type: "command", name: "graph_op", panel, ops: [{ kind: "add_node", node_kind: button.dataset.kind, x: 40, y: 40 }] });
-      return;
-    }
-    if (action === "apply_graph") {
-      post({ type: "command", name: "graph_apply", panel });
       return;
     }
     if (action === "driver") {
@@ -352,19 +323,13 @@
       for (const field of section.fields || []) card.append(fieldRow(field, view.editable));
       main.append(card);
     }
-    if (!view.sections || view.sections.length === 0) {
-      main.append(el("p", "empty", "ワールドで対象を選んでください。"));
-    }
-  }
-
-  function renderScripts(view) {
-    const main = document.querySelector("#main");
-    main.replaceChildren();
+    const scripts = el("section", "section");
+    scripts.append(el("h3", null, "Scripts"));
     const list = el("div", "script-list");
     for (const script of view.scripts || []) {
       const row = el("div", "script-row");
       row.append(el("span", null, `${script.name} · ${script.enabled ? "Running" : "Paused"}`));
-      const edit = el("button", "ghost tiny", "Edit");
+      const edit = el("button", "ghost tiny", "Script Editor");
       edit.type = "button";
       edit.dataset.action = "open_script";
       edit.dataset.script = script.id;
@@ -372,81 +337,32 @@
       list.append(row);
     }
     if (!view.scripts || view.scripts.length === 0) list.append(el("p", "empty", "No scripts attached"));
-    const manage = el("button", "ghost", "Manage scripts");
+    const manage = el("button", "ghost", "Resources / Script Editor");
     manage.type = "button";
     manage.dataset.action = "open_script";
     manage.dataset.script = "";
     list.append(manage);
-    main.append(list);
-    if (view.graph) {
-      const graphBox = el("div", "graph");
-      graphBox.append(el("h3", null, "Node graph"));
-      const tools = el("div", "actions");
-      ["number", "add", "write_field", "on_update"].forEach((kind) => {
-        const add = el("button", "ghost tiny", "+ " + kind);
-        add.type = "button";
-        add.dataset.action = "graph_add";
-        add.dataset.kind = kind;
-        tools.append(add);
-      });
-      const apply = el("button", "ghost tiny", "Apply graph");
-      apply.type = "button";
-      apply.dataset.action = "apply_graph";
-      tools.append(apply);
-      graphBox.append(tools);
-      const canvas = el("div", "graph-canvas");
-      for (const node of view.graph.nodes || []) {
-        const card = el("div", "graph-node");
-        card.style.left = `${node.x || 0}px`;
-        card.style.top = `${node.y || 0}px`;
-        card.textContent = `${node.kind || node.id}`;
-        canvas.append(card);
-      }
-      if ((view.graph.nodes || []).length === 0) canvas.append(el("p", "empty", "ノードを追加してください。"));
-      graphBox.append(canvas);
-      main.append(graphBox);
-      return;
+    scripts.append(list);
+    scripts.append(el("p", "empty", "作成は Resources、編集は Script Editor（共有パネル）。"));
+    main.append(scripts);
+    if (!view.sections || view.sections.length === 0) {
+      main.append(el("p", "empty", "ワールドで対象を選んでください。"));
     }
-    const editor = el("div", "script-editor");
-    const area = el("textarea", "code");
-    area.dataset.field = "script_source";
-    area.dataset.type = "script_source";
-    area.value = view.scriptText || state.scriptText || "";
-    area.disabled = !view.editable;
-    state.scriptText = area.value;
-    area.addEventListener("input", () => {
-      state.scriptText = area.value;
-      state.dirtyScript = true;
-      state.focused = true;
-    });
-    area.addEventListener("focus", () => { state.focused = true; });
-    area.addEventListener("blur", () => { state.focused = false; });
-    editor.append(area);
-    const actions = el("div", "actions");
-    const apply = el("button", "ghost", "Apply code");
-    apply.type = "button";
-    apply.dataset.action = "apply_script";
-    const reload = el("button", "ghost", "Reload draft");
-    reload.type = "button";
-    reload.dataset.action = "reload_script";
-    actions.append(apply, reload);
-    editor.append(actions);
-    main.append(editor);
   }
 
   function render(view) {
     state.view = view;
+    state.tab = "object";
     const shell = document.querySelector("#inspector-root");
     if (!shell) return;
     document.querySelector("#title").textContent = view.title || "Inspector";
     document.querySelector("#message").textContent = view.message || "";
     document.querySelector("#pin").setAttribute("aria-pressed", view.open ? "true" : "false");
     document.querySelectorAll(".tab").forEach((tab) => {
-      tab.setAttribute("aria-pressed", tab.dataset.tab === state.tab ? "true" : "false");
+      tab.setAttribute("aria-pressed", tab.dataset.tab === "object" ? "true" : "false");
     });
     renderTree(view);
-    if (state.tab === "scripts") renderScripts(view);
-    else renderObject(view);
+    renderObject(view);
     if (global.tukurium && global.tukurium.report) global.tukurium.report(false);
     if (view.mode === "panel" && global.tukurium && global.tukurium.requestCapture) {
       global.tukurium.requestCapture();
@@ -464,7 +380,7 @@
       return;
     }
     // Keep caret and draft while typing; FPS labels must not rebuild the form.
-    if (editingField() || (state.focused && state.tab === "scripts" && state.dirtyScript)) {
+    if (editingField()) {
       state.view = view;
       const title = document.querySelector("#title");
       const message = document.querySelector("#message");
