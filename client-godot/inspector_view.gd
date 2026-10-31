@@ -3,6 +3,7 @@ const SHARED_SCRIPT_VIEW = preload("res://shared_script_view.gd")
 const INSPECTOR_TREE = preload("res://inspector_tree.gd")
 const REFERENCE_CHIP = preload("res://reference_chip.gd")
 const PRIMITIVES = preload("res://primitive_mesh.gd")
+const PIN_BUTTON = preload("res://pin_icon_button.gd")
 ## One inspector instance. Selection, drafts and requests never use the HUD's singleton state.
 var manager
 var script_view
@@ -88,7 +89,10 @@ func build_layout() -> void:
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
 	if not desktop:
-		add_button(header, "ピン", func(): manager.toggle_pin(panel_id)).tooltip_text = "画面の2D表示と、掴める3Dの板を切り替える。2Dも同じインスペクタです。板は物体一覧や階層には出ません"
+		var pin = PIN_BUTTON.new()
+		pin.set_pinned_look(manager.pinned_to_me(panel_id))
+		pin.pressed.connect(func(): manager.toggle_pin(panel_id))
+		header.add_child(pin)
 	add_button(header, "+", func(): manager.duplicate_panel(panel_id))
 	add_button(header, "↗", func(): manager.open_inspector(target_id, true)).tooltip_text = "Inspect this object in a separate local window"
 	add_button(header, "×", func(): manager.close_panel(panel_id)).tooltip_text = "Delete this shared inspector for everyone"

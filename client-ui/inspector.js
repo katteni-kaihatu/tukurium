@@ -47,14 +47,19 @@
     head.id = "drag";
     const title = el("h2", null, "Inspector");
     title.id = "title";
-    const pin = el("button", "ghost", "ピン");
+    const pin = el("button", "tb pin");
     pin.id = "pin";
     pin.type = "button";
+    pin.setAttribute("aria-label", "ピン留め");
     pin.setAttribute("aria-pressed", "false");
-    const close = el("button", "icon", "×");
+    pin.title = "ピン留め: オフ（3D空間に置く）";
+    pin.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3.5h6l-1 6.5 3.5 3.5h-11L10 10z"></path><path d="M12 13.5V21"></path></svg>';
+    const close = el("button", "tb");
     close.id = "close";
     close.type = "button";
     close.setAttribute("aria-label", "閉じる");
+    close.title = "閉じる";
+    close.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>';
     head.append(title, pin, close);
     const tabs = el("div", "tabs");
     const objectTab = el("button", "tab", "Object");
@@ -357,7 +362,12 @@
     if (!shell) return;
     document.querySelector("#title").textContent = view.title || "Inspector";
     document.querySelector("#message").textContent = view.message || "";
-    document.querySelector("#pin").setAttribute("aria-pressed", view.open ? "true" : "false");
+    const pin = document.querySelector("#pin");
+    const pinned = !!view.open;
+    pin.setAttribute("aria-pressed", pinned ? "true" : "false");
+    pin.title = pinned ? "ピン留め: オン（画面に固定）" : "ピン留め: オフ（3D空間に置く）";
+    const glyph = pin.querySelector("svg");
+    if (glyph) glyph.setAttribute("fill", pinned ? "currentColor" : "none");
     document.querySelectorAll(".tab").forEach((tab) => {
       tab.setAttribute("aria-pressed", tab.dataset.tab === "object" ? "true" : "false");
     });

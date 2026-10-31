@@ -1370,10 +1370,10 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 		if not used_images.has(source): image_textures.erase(source)
 	asset_importer.evict_unused_assets()
 	camera_tool.world_updated()
-	if not objects.has(selected_id) or objects[selected_id].get("inspector") != null:
+	if not objects.has(selected_id) or objects[selected_id].get("panel") != null:
 		selected_id = ""
 		for candidate in objects:
-			if objects[candidate].get("inspector") == null:
+			if objects[candidate].get("panel") == null:
 				selected_id = str(candidate)
 				break
 		dirty.clear()
@@ -1454,7 +1454,7 @@ func create_render_node(object: Dictionary) -> MeshInstance3D:
 
 func select_object(id: String) -> void:
 	if pending: return
-	if not objects.has(id) or objects[id].get("inspector") != null: return
+	if not objects.has(id) or objects[id].get("panel") != null: return
 	if id != selected_id and gizmo.dragging: gizmo.cancel_drag()
 	if id != selected_id: dirty.clear()
 	selected_id = id
@@ -1465,7 +1465,7 @@ func update_selected() -> void:
 	current = objects.get(selected_id, {})
 	video_controls.visible = not current.is_empty() and current.visual.kind == "video"
 	fields.clear()
-	selection_outline.visible = not current.is_empty() and current.get("inspector") == null and current.get("visual", {}).get("kind") != "none"
+	selection_outline.visible = not current.is_empty() and current.get("panel") == null and current.get("visual", {}).get("kind") != "none"
 	if current.is_empty():
 		AppLanguage.format_text(object_label,"No object selected")
 		name_input.text = ""
@@ -1492,7 +1492,7 @@ func rebuild_tree() -> void:
 		node.queue_free()
 	for id in objects:
 		var object: Dictionary = objects[id]
-		if object.get("inspector") != null: continue
+		if object.get("panel") != null: continue
 		var button := Button.new()
 		var name := "Cube"
 		for field in object.fields:
@@ -1653,7 +1653,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var hit := get_world_3d().direct_space_state.intersect_ray(query)
 		if not hit.is_empty() and hit.collider.has_meta("object_id"):
 			var hit_id := str(hit.collider.get_meta("object_id"))
-			if objects.get(hit_id, {}).get("inspector") != null: return
+			if objects.get(hit_id, {}).get("panel") != null: return
 			select_object(hit_id)
 			if event.double_click and camera_tool.is_camera(hit_id):
 				camera_tool.open(hit_id)

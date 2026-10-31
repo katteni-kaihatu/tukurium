@@ -210,14 +210,21 @@ func handle(message: Dictionary) -> void:
 				"inspector":
 					notice = ""
 					app.world_panels.html_text_focus = false
-					if app.world_panels.pinned_ids().is_empty(): app.world_panels.pin_target(str(app.selected_id))
-					else: app.world_panels.release_pins()
+					var inspector_pins: Array = app.world_panels.pinned_ids().filter(func(id): return app.world_panels.panel_kind(str(id)) == "inspector")
+					if inspector_pins.is_empty(): app.world_panels.pin_target(str(app.selected_id))
+					else:
+						for pin_id in inspector_pins:
+							app.world_panels.edit(str(pin_id), "panel_pin", null)
 					push(true)
 					focus_godot()
 				"place":
-					var pinned: Array = app.world_panels.pinned_ids()
-					if pinned.is_empty(): return
-					app.world_panels.pin_panel_rect(pinned[0], [message.get("x", 0), message.get("y", 0), message.get("w", 0), message.get("h", 0)], float(message.get("aspect", 1.6)))
+					var placed := false
+					for id in app.world_panels.pinned_ids():
+						if app.world_panels.panel_kind(str(id)) != "inspector": continue
+						app.world_panels.pin_panel_rect(str(id), [message.get("x", 0), message.get("y", 0), message.get("w", 0), message.get("h", 0)], float(message.get("aspect", 1.6)))
+						placed = true
+						break
+					if not placed: return
 					push(true)
 				"set_target":
 					var panel := str(message.get("panel", ""))
@@ -279,15 +286,16 @@ func snapshot() -> Dictionary:
 			"engine": app.hud.engine_label.text,
 			"fps": app.hud.fps_label.text,
 			"view": app.hud.mode_button.text,
-			"inspector": not app.world_panels.pinned_ids().is_empty(),
+			"inspector": app.world_panels.pinned_ids().any(func(id): return app.world_panels.panel_kind(str(id)) == "inspector"),
 		},
 		"inspector": pinned_view(),
 	}
 
 func pinned_view() -> Dictionary:
-	var pinned: Array = app.world_panels.pinned_ids()
-	if pinned.is_empty(): return {"open": false}
-	return inspector_model(str(pinned[0]), "overlay")
+	for id in app.world_panels.pinned_ids():
+		if app.world_panels.panel_kind(str(id)) == "inspector":
+			return inspector_model(str(id), "overlay")
+	return {"open": false}
 
 func inspector_model(panel_id: String, mode: String) -> Dictionary:
 	if not app.objects.has(panel_id): return {"open": false}
@@ -326,7 +334,7 @@ func inspector_model(panel_id: String, mode: String) -> Dictionary:
 func object_list() -> Array:
 	var list := []
 	for id in app.objects:
-		if app.objects[id].get("inspector") != null: continue
+		if app.objects[id].get("panel") != null: continue
 		var parent = app.objects[id].get("parent")
 		list.append({
 			"id": id,

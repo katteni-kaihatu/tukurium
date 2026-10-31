@@ -111,7 +111,25 @@ header.glass {
 }
 .whead:active { cursor: grabbing; }
 .whead h2 { margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; color: #3a3942; }
-#pin { height: 30px; padding: 0 10px; border-radius: 8px; }
+.tb {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #6a6875;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tb:hover:not(:disabled) { background: rgba(38, 38, 46, 0.09); }
+.tb.pin[aria-pressed="true"] {
+  background: #f3eaf0;
+  color: #603d56;
+}
+.tb#close { color: #3a3942; }
 .icon {
   width: 30px;
   height: 30px;

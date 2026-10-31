@@ -1,6 +1,7 @@
 extends PanelContainer
 ## Shared Script Editor WorldPanel hosting the collaborative script draft view.
 const SHARED_SCRIPT_VIEW = preload("res://shared_script_view.gd")
+const PIN_BUTTON = preload("res://pin_icon_button.gd")
 const PAPER := Color("fffdf9")
 const GROUND := Color("eae5db")
 const INK := Color("26262e")
@@ -36,6 +37,10 @@ func setup(controller, id: String) -> void:
 	title.add_theme_color_override("font_color", INK)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
+	var pin = PIN_BUTTON.new()
+	pin.set_pinned_look(manager.pinned_to_me(panel_id))
+	pin.pressed.connect(func(): manager.toggle_pin(panel_id))
+	header.add_child(pin)
 	var close := Button.new()
 	close.text = "×"
 	close.focus_mode = Control.FOCUS_NONE

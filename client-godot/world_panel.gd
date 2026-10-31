@@ -13,6 +13,7 @@ var manager
 var last_pointer := Vector2(-1000, -1000)
 var html_texture: Texture2D
 var using_html := false
+var viewport_hosted := false
 
 func setup(controller, id: String) -> void:
 	manager = controller
@@ -59,10 +60,11 @@ func setup(controller, id: String) -> void:
 
 func refresh(object: Dictionary) -> void:
 	var size := Vector2i(int(object.panel.size[0]), int(object.panel.size[1]))
-	if viewport.size != size:
+	if is_instance_valid(viewport) and viewport.size != size:
 		viewport.size = size
 		mesh.size = Vector2(1.6 * float(size.x) / float(size.y), 1.6)
 	content.refresh(object)
+	if viewport_hosted: return
 	if inspector_content and manager.app.html_ui != null and manager.app.html_ui.active:
 		# Prefer the HTML paper board immediately so the old dark Control theme never flashes.
 		using_html = true
@@ -125,5 +127,25 @@ func clear_focus() -> void:
 
 func has_text_focus() -> bool:
 	if using_html: return false
+	if not is_instance_valid(viewport): return false
 	var focus := viewport.gui_get_focus_owner()
 	return focus is LineEdit or focus is TextEdit
+
+func lend_viewport() -> SubViewport:
+	viewport_hosted = true
+	if viewport.get_parent() == self:
+		remove_child(viewport)
+	material_override.albedo_texture = null
+	material_override.albedo_color = Color("fffdf9")
+	return viewport
+
+func reclaim_viewport(host: SubViewport) -> void:
+	viewport = host
+	viewport_hosted = false
+	if viewport.get_parent() != null:
+		viewport.get_parent().remove_child(viewport)
+	add_child(viewport)
+	if not using_html:
+		material_override.albedo_color = Color(1, 1, 1, 1)
+		material_override.albedo_texture = viewport.get_texture()
+		viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
