@@ -3,13 +3,14 @@ extends CanvasLayer
 const Art = preload("res://service_art.gd")
 const DesktopWindow = preload("res://desktop_window.gd")
 const BRAND_ART = preload("res://brand_art.gd")
+const DesignChrome = preload("res://design_chrome.gd")
 const PAPER = Color("fffdf9")
-const GROUND = Color("eae5db")
+const GROUND = Color("f7f3eb")
 const INK = Color("26262e")
-const MUTED = Color("6b6872")
+const MUTED = Color("5e5c64")
 const LINE = Color("dcd5c8")
-const BLUE = Color("2f5fc4")
-const PALE = Color("eef3fc")
+const PLUM = Color("603d56")
+const PALE = Color("f3eaf0")
 var app
 var shade: ColorRect
 var shell: PanelContainer
@@ -27,6 +28,7 @@ var workshop: GridContainer
 var projects: VBoxContainer
 var current_user: Dictionary = {}
 var current_session: Dictionary = {}
+var current_project: Dictionary = {}
 var enabled := false
 var auto_login := false
 var open_button: Button
@@ -112,14 +114,10 @@ func button(parent: Node, value: String, callback: Callable, primary: bool = fal
 	b.text=value
 	b.custom_minimum_size.y=38
 	b.mouse_default_cursor_shape=Control.CURSOR_POINTING_HAND
-	b.add_theme_stylebox_override("normal",box(BLUE if primary else PAPER,9,BLUE if primary else LINE,12))
-	b.add_theme_stylebox_override("hover",box(Color("274fa5") if primary else PALE,9,BLUE,12))
-	b.add_theme_stylebox_override("pressed",box(Color("23478f") if primary else Color("e1e9f8"),9,BLUE,12))
-	b.add_theme_stylebox_override("disabled",box(Color("f2eee7"),9,LINE,12))
-	b.add_theme_color_override("font_color",Color.WHITE if primary else INK)
-	b.add_theme_color_override("font_hover_color",Color.WHITE if primary else BLUE)
-	b.add_theme_color_override("font_pressed_color",Color.WHITE if primary else BLUE)
-	b.add_theme_color_override("font_disabled_color",Color("928c84"))
+	if primary:
+		DesignChrome.style_primary(b)
+	else:
+		DesignChrome.style_quiet(b)
 	b.pressed.connect(callback)
 	parent.add_child(b)
 	return b
@@ -129,12 +127,13 @@ func field(parent: Node, placeholder: String) -> LineEdit:
 	input.placeholder_text=placeholder
 	input.custom_minimum_size.y=40
 	input.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	DesignChrome.style_line_edit(input)
 	parent.add_child(input)
 	return input
 
 func surface(parent: Node, color: Color = PAPER, padding: int = 16) -> PanelContainer:
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel",box(color,14,Color.TRANSPARENT,padding))
+	panel.add_theme_stylebox_override("panel", DesignChrome.panel(color, 14, padding, false))
 	parent.add_child(panel)
 	return panel
 
@@ -166,22 +165,22 @@ func setup(scene) -> void:
 	theme.default_font_size=14
 	for type in ["Label","LineEdit","TextEdit","CheckBox","Button"]:
 		theme.set_color("font_color",type,INK)
-		theme.set_color("font_hover_color",type,BLUE)
-		theme.set_color("font_focus_color",type,BLUE)
+		theme.set_color("font_hover_color",type,PLUM)
+		theme.set_color("font_focus_color",type,PLUM)
 		theme.set_color("font_pressed_color",type,INK)
 		theme.set_color("font_disabled_color",type,MUTED)
 	theme.set_color("font_uneditable_color","LineEdit",MUTED)
 	theme.set_stylebox("normal","Button",box(PAPER,9,LINE,12))
-	theme.set_stylebox("hover","Button",box(PALE,9,BLUE,12))
-	theme.set_stylebox("pressed","Button",box(PALE,9,BLUE,12))
+	theme.set_stylebox("hover","Button",box(PALE,9,PLUM,12))
+	theme.set_stylebox("pressed","Button",box(PALE,9,PLUM,12))
 	theme.set_stylebox("disabled","Button",box(GROUND,9,LINE,12))
-	theme.set_stylebox("normal","LineEdit",box(PAPER,10,LINE,10))
-	theme.set_stylebox("focus","LineEdit",box(PAPER,10,BLUE,10))
+	theme.set_stylebox("normal","LineEdit",box(Color.WHITE,10,LINE,10))
+	theme.set_stylebox("focus","LineEdit",box(Color.WHITE,10,Color("d9c5d2"),10))
 	theme.set_color("font_placeholder_color","LineEdit",MUTED)
-	theme.set_stylebox("normal","TextEdit",box(PAPER,10,LINE,10))
-	theme.set_stylebox("focus","TextEdit",box(PAPER,10,BLUE,10))
-	theme.set_stylebox("focus","Button",box(Color(0,0,0,0),9,BLUE,2))
-	theme.set_stylebox("panel","AcceptDialog",box(PAPER,16,LINE,20))
+	theme.set_stylebox("normal","TextEdit",box(Color.WHITE,10,LINE,10))
+	theme.set_stylebox("focus","TextEdit",box(Color.WHITE,10,Color("d9c5d2"),10))
+	theme.set_stylebox("focus","Button",box(Color(0,0,0,0),9,PLUM,2))
+	theme.set_stylebox("panel","AcceptDialog",DesignChrome.panel(PAPER,16,20,true))
 	theme.set_color("title_color","Window",INK)
 	theme.set_stylebox("embedded_border","Window",box(GROUND,14,LINE,12))
 	var screen: Vector2=app.get_viewport().get_visible_rect().size
@@ -195,7 +194,7 @@ func setup(scene) -> void:
 		frame.size=Vector2(minf(sizes[key].x,screen.x-40),minf(sizes[key].y,screen.y-170))
 		frame.position=Vector2(minf(positions[key].x,screen.x-frame.size.x-20),positions[key].y)
 		frame.minimum_window_size=Vector2(620 if key=="sessions" else 760,430)
-		frame.panel.add_theme_stylebox_override("panel",box(GROUND,20,Color.TRANSPARENT,16))
+		frame.panel.add_theme_stylebox_override("panel", DesignChrome.panel(GROUND, 20, 16, true))
 		frame.panel.theme=theme
 		frame.hide()
 		windows[key]=frame
@@ -468,6 +467,7 @@ func receive_state(body: Dictionary) -> void:
 	var previous_user_id: String=str(current_user.get("id",""))
 	current_user=body.user if body.get("user") is Dictionary else {}
 	current_session=body.session if body.get("session") is Dictionary else {}
+	current_project=body.project if body.get("project") is Dictionary else {}
 	if previous_user_id!=str(current_user.get("id","")):
 		library_generation+=1
 		workshop_generation+=1
@@ -717,7 +717,7 @@ func item_card(parent: GridContainer, record: Dictionary, kind: String) -> void:
 	var note := ""
 	if kind=="workshop": note="取得済み" if record.get("in_library",false) else "公開中"
 	else: note="公開中" if record.get("publication")!=null else "保存済み"
-	contents.add_child(text(note,11,BLUE))
+	contents.add_child(text(note,11,PLUM))
 	button(contents,"詳細を見る",func(): select_item(record,kind))
 
 func show_detail_empty(kind: String = "") -> void:

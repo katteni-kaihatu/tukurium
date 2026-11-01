@@ -1,6 +1,7 @@
 extends Node
 ## A local viewfinder for a shared Camera component. Rust owns the parked pose and photo objects.
 const DESKTOP_WINDOW = preload("res://desktop_window.gd")
+const DesignChrome = preload("res://design_chrome.gd")
 const MAX_SHARED_IMAGE_BYTES := 192 * 1024
 
 var app
@@ -49,13 +50,7 @@ func setup(owner) -> void:
 	frame.position = Vector2(90, 90)
 	frame.size = Vector2(720, 540)
 	frame.minimum_window_size = Vector2(520, 420)
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("101b25")
-	style.border_color = Color("47727a")
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(10)
-	style.set_content_margin_all(14)
-	frame.panel.add_theme_stylebox_override("panel", style)
+	frame.panel.add_theme_stylebox_override("panel", DesignChrome.panel(DesignChrome.PAPER, 18, 14, true))
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 8)
 	frame.panel.add_child(column)
@@ -65,11 +60,13 @@ func setup(owner) -> void:
 	var title := Label.new()
 	title.text = "◉  Camera"
 	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", DesignChrome.INK)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
 	var close_button := Button.new()
 	close_button.text = "配置して閉じる"
 	close_button.focus_mode = Control.FOCUS_NONE
+	DesignChrome.style_ghost(close_button)
 	close_button.pressed.connect(park)
 	header.add_child(close_button)
 	view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -81,29 +78,34 @@ func setup(owner) -> void:
 	var hint := Label.new()
 	hint.text = "WASD 移動  ·  Q/E 上下  ·  右ドラッグ 視点  ·  Shift 加速  ·  Esc 配置"
 	hint.add_theme_font_size_override("font_size", 13)
-	hint.modulate = Color("91a8b5")
+	hint.add_theme_color_override("font_color", DesignChrome.MUTED)
 	column.add_child(hint)
 	var actions := HBoxContainer.new()
 	column.add_child(actions)
 	shutter_button.text = "● 撮影"
+	DesignChrome.style_primary(shutter_button)
 	shutter_button.pressed.connect(shoot)
 	actions.add_child(shutter_button)
 	save_button.text = "ローカル保存"
 	save_button.disabled = true
+	DesignChrome.style_quiet(save_button)
 	save_button.pressed.connect(save_local)
 	actions.add_child(save_button)
 	share_button.text = "写真をワールドに置く"
 	share_button.disabled = true
+	DesignChrome.style_quiet(share_button)
 	share_button.pressed.connect(share_photo)
 	actions.add_child(share_button)
 	var discard := Button.new()
 	discard.text = "移動を戻す"
+	DesignChrome.style_ghost(discard)
 	discard.pressed.connect(reset_pose)
 	actions.add_child(discard)
 	var lower := HBoxContainer.new()
 	column.add_child(lower)
 	status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status.add_theme_font_size_override("font_size", 13)
+	status.add_theme_color_override("font_color", DesignChrome.MUTED)
 	lower.add_child(status)
 	thumbnail.custom_minimum_size = Vector2(96, 54)
 	thumbnail.expand_mode = TextureRect.EXPAND_IGNORE_SIZE

@@ -76,7 +76,11 @@
     shell.append(head, tabs, body, message);
     root.append(shell);
     pin.addEventListener("click", () => post({ type: "command", name: "inspector" }));
-    close.addEventListener("click", () => post({ type: "command", name: "inspector" }));
+    close.addEventListener("click", () => post({
+      type: "command",
+      name: "close_inspector",
+      panel: state.view && state.view.panelId,
+    }));
     state.tab = "object";
     main.addEventListener("change", onChange);
     main.addEventListener("click", onClick);

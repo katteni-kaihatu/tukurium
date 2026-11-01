@@ -25,15 +25,32 @@ Godot / Engine からは次だけを見る。v0 実装は Engine 内のローカ
 
 終了時（leave / エンジン停止の既存保存経路）に、開いている Project の `world.json` へ自動上書きする。v0 に Commit UI はない。
 
-## Resources と Script（中間地点）
+## Resources カタログ（ローカル）と Script
 
-仮想ファイルとしてはまだ分けない。Resources WorldPanel から作れる単位は **Script と実行状態を一体にした ScriptComponent** で、選択中 Slot へ既存の Attach 経路で付与する。編集は分離した **Script Editor** WorldPanel。インスペクタの Scripts タブ編集は外し、リンクだけ残す。
+Resources WorldPanel はデザイン上のエクスプローラ UI で、**ローカル Project（またはワークスペース）のカタログ**を扱う。
 
-将来（この文書の範囲外）：Script 定義をプロジェクトの仮想リソースとして保存し、KokoState のクエリで適用先 Slot を選ぶ。
+配置例：
+
+- `<data_root>/projects/<slug>/resources/catalog.json` … フォルダ／項目メタ
+- `<data_root>/projects/<slug>/resources/files/<id>.<ext>` … 取り込んだメッシュ・テクスチャ実体
+- Project 未オープン時は `<data_root>/workspace-resources/` を使う
+
+| kind | 意味 | 操作 |
+|---|---|---|
+| `folder` | フォルダ | New → Folder |
+| `material` | 色マテリアル | New で追加。選択物体の `color` へ適用 |
+| `model` | メッシュ（glTF/FBX） | 外部インポート。ワールドへ配置は既存 `ImportAsset` |
+| `image` | テクスチャ | 外部インポート。ワールドへ画像 Slot を置く |
+| `script` | Script の控え | New から選択 Slot へ ScriptComponent を Attach（編集は Script Editor） |
+
+サービス action：`project_resources` / `project_resource_upsert` / `project_resource_remove`（必要なら `project_resource_store_file`）。asset-server にはカタログ本体を載せない。モデル配置時のバイナリ共有は既存のアセット転送を使う。
+
+将来（この文書の範囲外）：Script 定義の仮想ファイル化、KokoState クエリ、prefab / shader / node system。
 
 ## UI
 
 - 個人 2D：service_panel の Projects（一覧・作成・詳細・ワークスペースで開く）。「ローカルのみ」と明記。共有パネルは個人 UI から自動生成しない。
+- セッション内共有：ワークスペース・メインパネル（[workspace_view.gd](../client-godot/workspace_view.gd)）は WorldPanel。配置とピンを共有。Edit ドックから開く。Project／セッション入口・Edit/Play・Inspector／Resources 起動は既存操作へのショートカット（History 等は非活性）。
 - セッション内共有：Resources / Script Editor は WorldPanel。入口は Edit ドックとリング（Resources）。
 
 ## 後続

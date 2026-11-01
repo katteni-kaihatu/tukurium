@@ -1,6 +1,7 @@
 extends Control
 ## Local floating frame. Position and size never become shared world state.
 signal focused
+const DesignChrome = preload("res://design_chrome.gd")
 
 var panel := PanelContainer.new()
 var grip := Button.new()
@@ -26,7 +27,7 @@ func _ready() -> void:
 	grip.offset_bottom=0
 	grip.add_theme_stylebox_override("normal",StyleBoxEmpty.new())
 	grip.add_theme_stylebox_override("hover",StyleBoxEmpty.new())
-	grip.add_theme_color_override("font_color",Color("597084"))
+	grip.add_theme_color_override("font_color", DesignChrome.MUTED)
 	add_child(grip)
 	grip.gui_input.connect(_grip_input)
 

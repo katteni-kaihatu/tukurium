@@ -1,6 +1,7 @@
 extends PanelContainer
 ## Shared CreationView content, hosted by the same world surface as inspectors.
 const PRIMITIVES = preload("res://primitive_mesh.gd")
+const DesignChrome = preload("res://design_chrome.gd")
 var manager
 var panel_id := ""
 var app
@@ -26,11 +27,8 @@ func setup(controller, id: String) -> void:
 	panel_id=id
 	theme=Theme.new()
 	theme.default_font_size=20
-	var style := StyleBoxFlat.new()
-	style.bg_color=Color("14222f")
-	style.border_color=Color("5cbcae")
-	style.set_border_width_all(2)
-	style.set_content_margin_all(24)
+	clip_contents = true
+	var style := DesignChrome.panel(DesignChrome.PAPER, 18, 20, true)
 	add_theme_stylebox_override("panel",style)
 	build_ui()
 	AppLanguage.language_changed.connect(refresh_language)
@@ -42,12 +40,14 @@ func build_ui() -> void:
 	var header := HBoxContainer.new()
 	column.add_child(header)
 	var title := label("新規作成",28)
+	title.add_theme_color_override("font_color", DesignChrome.INK)
 	title.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	header.add_child(title)
 	var close := Button.new()
 	close.text="×"
 	close.focus_mode=Control.FOCUS_NONE
 	close.custom_minimum_size=Vector2(48,44)
+	DesignChrome.style_ghost(close)
 	close.pressed.connect(func(): manager.close_panel(panel_id))
 	header.add_child(close)
 	column.add_child(HSeparator.new())
@@ -58,8 +58,12 @@ func build_ui() -> void:
 	var categories := VBoxContainer.new()
 	categories.custom_minimum_size.x=155
 	body.add_child(categories)
-	categories.add_child(label("3Dモデル",23))
-	categories.add_child(label("Procedural",15))
+	var cat := label("3Dモデル",23)
+	cat.add_theme_color_override("font_color", DesignChrome.INK)
+	categories.add_child(cat)
+	var proc := label("Procedural",15)
+	proc.add_theme_color_override("font_color", DesignChrome.MUTED)
+	categories.add_child(proc)
 	var grid := GridContainer.new()
 	grid.columns=4
 	grid.size_flags_horizontal=Control.SIZE_EXPAND_FILL
@@ -73,6 +77,7 @@ func build_ui() -> void:
 		card.button_group=group
 		card.focus_mode=Control.FOCUS_NONE
 		card.custom_minimum_size=Vector2(188,220)
+		DesignChrome.style_quiet(card)
 		card.pressed.connect(select_shape.bind(index))
 		card.gui_input.connect(func(event):
 			if event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT and event.double_click and event.pressed:
@@ -92,6 +97,7 @@ func build_ui() -> void:
 		stack.add_child(preview)
 		build_preview(preview,PRIMITIVES.SHAPES[index])
 		var name_label := label(PRIMITIVES.NAMES[index],19)
+		name_label.add_theme_color_override("font_color", DesignChrome.INK)
 		name_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
 		name_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
 		stack.add_child(name_label)
@@ -99,18 +105,21 @@ func build_ui() -> void:
 	var footer := HBoxContainer.new()
 	column.add_child(footer)
 	status=label("",18)
+	status.add_theme_color_override("font_color", DesignChrome.MUTED)
 	status.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	footer.add_child(status)
 	camera_button=Button.new()
 	camera_button.text="◉ Camera を作成"
 	camera_button.custom_minimum_size=Vector2(190,48)
 	camera_button.focus_mode=Control.FOCUS_NONE
+	DesignChrome.style_quiet(camera_button)
 	camera_button.pressed.connect(spawn_camera)
 	footer.add_child(camera_button)
 	mirror_button=Button.new()
 	mirror_button.text="▣ Mirror を作成"
 	mirror_button.custom_minimum_size=Vector2(190,48)
 	mirror_button.focus_mode=Control.FOCUS_NONE
+	DesignChrome.style_quiet(mirror_button)
 	mirror_button.pressed.connect(spawn_mirror)
 	footer.add_child(mirror_button)
 	var presets := VBoxContainer.new()
@@ -120,17 +129,20 @@ func build_ui() -> void:
 	text_button.text="テキストを作成"
 	text_button.custom_minimum_size=Vector2(190,48)
 	text_button.focus_mode=Control.FOCUS_NONE
+	DesignChrome.style_quiet(text_button)
 	text_button.pressed.connect(spawn_slot.bind(true))
 	presets.add_child(text_button)
 	slot_button=Button.new()
 	slot_button.text="空のSlotを作成"
 	slot_button.custom_minimum_size=Vector2(190,48)
 	slot_button.focus_mode=Control.FOCUS_NONE
+	DesignChrome.style_quiet(slot_button)
 	slot_button.pressed.connect(spawn_slot.bind(false))
 	presets.add_child(slot_button)
 	create_button=Button.new()
 	create_button.custom_minimum_size=Vector2(210,48)
 	create_button.focus_mode=Control.FOCUS_NONE
+	DesignChrome.style_primary(create_button)
 	create_button.pressed.connect(spawn_selected)
 	footer.add_child(create_button)
 	show_selection(0)
@@ -150,10 +162,10 @@ func build_preview(parent: SubViewportContainer, shape: String) -> void:
 	var environment := WorldEnvironment.new()
 	environment.environment=Environment.new()
 	environment.environment.background_mode=Environment.BG_COLOR
-	environment.environment.background_color=Color("1b2c39")
+	environment.environment.background_color=DesignChrome.GROUND
 	environment.environment.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
 	environment.environment.ambient_light_color=Color.WHITE
-	environment.environment.ambient_light_energy=0.7
+	environment.environment.ambient_light_energy=0.85
 	preview.add_child(environment)
 	var light := DirectionalLight3D.new()
 	light.rotation_degrees=Vector3(-45,-30,0)
@@ -161,7 +173,7 @@ func build_preview(parent: SubViewportContainer, shape: String) -> void:
 	var object := MeshInstance3D.new()
 	object.mesh=PRIMITIVES.create(shape)
 	var material := StandardMaterial3D.new()
-	material.albedo_color=Color("7ed8cf")
+	material.albedo_color=DesignChrome.PLUM
 	material.roughness=0.55
 	material.cull_mode=BaseMaterial3D.CULL_DISABLED
 	object.material_override=material
@@ -169,7 +181,9 @@ func build_preview(parent: SubViewportContainer, shape: String) -> void:
 
 func show_selection(index: int) -> void:
 	selected=index
-	cards[index].button_pressed=true
+	for i in cards.size():
+		cards[i].button_pressed = i == index
+		DesignChrome.style_quiet(cards[i], i == index)
 	AppLanguage.format_text(create_button, "%s を作成", [tr(PRIMITIVES.NAMES[index])])
 
 func select_shape(index: int) -> void:

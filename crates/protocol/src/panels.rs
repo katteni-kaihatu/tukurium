@@ -77,6 +77,10 @@ pub struct ScriptEditorView {
     pub scroll: [f64; 2],
 }
 
+/// Shared workspace chrome board. Placement and pin are shared; Edit/Play stay local.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WorkspaceView {}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct InspectorTree {
     pub root: Option<Address>,

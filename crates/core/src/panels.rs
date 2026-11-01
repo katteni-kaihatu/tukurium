@@ -81,7 +81,15 @@ fn valid_screen(screen: &ScreenRect) -> bool {
 
 fn surface_components(object: &ObjectView) -> impl Iterator<Item = &'static crate::replication::ComponentRegistration> + '_ {
     crate::replication::REGISTRY.components.iter().filter(move |c| {
-        matches!(c.type_id, "WorldPanel" | "InspectorView" | "CreationView" | "ResourcesView" | "ScriptEditorView") && (c.present)(object)
+        matches!(
+            c.type_id,
+            "WorldPanel"
+                | "InspectorView"
+                | "CreationView"
+                | "ResourcesView"
+                | "ScriptEditorView"
+                | "WorkspaceView"
+        ) && (c.present)(object)
     })
 }
 
@@ -105,7 +113,8 @@ pub(crate) fn validate_object(object: &ObjectView) -> Result<(), String> {
     let views = usize::from(object.inspector.is_some())
         + usize::from(object.creation.is_some())
         + usize::from(object.resources.is_some())
-        + usize::from(object.script_editor.is_some());
+        + usize::from(object.script_editor.is_some())
+        + usize::from(object.workspace.is_some());
     if is_panel != object.panel.is_some() || views != usize::from(is_panel) {
         return Err("Panel visual requires one surface and one content component".into());
     }
@@ -199,6 +208,20 @@ pub(crate) fn create_resources(
         scroll: [0.0; 2],
     });
     object.fields.iter_mut().find(|f| f.id == "name").unwrap().value = json!("Resources");
+    crate::set_default_collider(&mut object);
+    Ok(object)
+}
+
+pub(crate) fn create_workspace(
+    snapshot: &Snapshot,
+    position: [f64; 3],
+    rotation: [f64; 4],
+) -> Result<ObjectView, String> {
+    let mut object = create(snapshot, None, position, rotation)?;
+    object.inspector = None;
+    object.workspace = Some(kokoverse_protocol::WorkspaceView {});
+    object.panel.as_mut().unwrap().size = [1280, 280];
+    object.fields.iter_mut().find(|f| f.id == "name").unwrap().value = json!("Workspace");
     crate::set_default_collider(&mut object);
     Ok(object)
 }
@@ -475,6 +498,37 @@ mod tests {
         outcome.result.unwrap();
         outcome.selected.unwrap()
     }
+    #[test]
+    fn workspace_panel_is_wide_and_restores() {
+        let mut model = WorldModel::new();
+        model
+            .enqueue(WorldCommand::Structure {
+                command: StructuralCommand {
+                    command_id: "workspace".into(),
+                    operation: StructuralOperation::CreateWorkspacePanel {
+                        position: [0.0, 1.8, 2.0],
+                        rotation: [0.0, 0.0, 0.0, 1.0],
+                    },
+                },
+            })
+            .unwrap();
+        let outcome = model.tick().remove(0);
+        outcome.result.as_ref().unwrap();
+        let id = outcome.selected.unwrap();
+        let snapshot = model.snapshot();
+        let board = snapshot.objects.iter().find(|o| o.address == id).unwrap();
+        assert!(board.workspace.is_some());
+        assert!(board.inspector.is_none());
+        assert_eq!(board.panel.as_ref().unwrap().size, [1280, 280]);
+        assert_eq!(
+            board.collider.as_ref().unwrap().half_extents,
+            half_extents([1280, 280])
+        );
+        let mut restored = WorldModel::new();
+        restored.restore(snapshot.clone()).unwrap();
+        assert_eq!(restored.snapshot(), snapshot);
+    }
+
     #[test]
     fn resizing_panel_keeps_pick_shape_and_saved_surface_in_agreement() {
         let mut model = WorldModel::new();

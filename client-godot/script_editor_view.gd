@@ -20,10 +20,16 @@ func setup(controller, id: String) -> void:
 	manager = controller
 	app = manager.app
 	panel_id = id
+	clip_contents = true
 	var style := StyleBoxFlat.new()
-	style.bg_color = GROUND
-	style.border_color = LINE
+	# Single glass face; pin overlay stays chromeless so corners are not doubled.
+	style.bg_color = PAPER
+	style.border_color = Color(1, 1, 1, 0.72)
 	style.set_border_width_all(1)
+	style.set_corner_radius_all(18)
+	style.shadow_color = Color(15 / 255.0, 25 / 255.0, 40 / 255.0, 0.18)
+	style.shadow_size = 12
+	style.shadow_offset = Vector2(0, 4)
 	style.set_content_margin_all(14)
 	add_theme_stylebox_override("panel", style)
 	var root := VBoxContainer.new()
@@ -36,6 +42,7 @@ func setup(controller, id: String) -> void:
 	title.add_theme_font_size_override("font_size", 24)
 	title.add_theme_color_override("font_color", INK)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.mouse_filter = Control.MOUSE_FILTER_PASS
 	header.add_child(title)
 	var pin = PIN_BUTTON.new()
 	pin.set_pinned_look(manager.pinned_to_me(panel_id))
@@ -46,6 +53,10 @@ func setup(controller, id: String) -> void:
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(request_close)
 	header.add_child(close)
+	header.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and manager.pinned_to_me(panel_id):
+			manager.begin_pin_drag(panel_id)
+			header.accept_event())
 	status = Label.new()
 	status.add_theme_color_override("font_color", MUTED)
 	status.add_theme_font_size_override("font_size", 13)
@@ -71,6 +82,14 @@ func refresh(object: Dictionary) -> void:
 	target_id = next
 	var name_text := str(manager.field_data(target_id, "name").get("value", target_id))
 	status.text = "対象: %s" % name_text
+	# html-host owns collaborative drafts for this panel; keep the SubViewport dormant.
+	var html_active: bool = app.html_ui != null and app.html_ui.active
+	if html_active:
+		script_view.active = false
+		if close_when_ready and app.html_ui.script_sessions.has(panel_id) and not app.html_ui.script_sessions[panel_id].busy():
+			close_when_ready = false
+			manager.close_panel(panel_id)
+		return
 	script_view.active = true
 	script_view.refresh(target_id, script_id)
 	if close_when_ready and not script_view.busy():
@@ -78,16 +97,30 @@ func refresh(object: Dictionary) -> void:
 		manager.close_panel(panel_id)
 
 func request_close() -> void:
-	if script_view.busy():
+	var html_active: bool = app.html_ui != null and app.html_ui.active
+	if html_active and app.html_ui.script_sessions.has(panel_id) and app.html_ui.script_sessions[panel_id].busy():
 		close_when_ready = true
 		status.text = "下書きの同期を待っています…"
 		return
+	if not html_active and script_view.busy():
+		close_when_ready = true
+		status.text = "下書きの同期を待っています…"
+		return
+	if html_active: app.html_ui.drop_script_session(panel_id)
 	manager.close_panel(panel_id)
 
 func finish_all() -> void:
+	var html_active: bool = app.html_ui != null and app.html_ui.active
+	if html_active:
+		if app.html_ui.script_sessions.has(panel_id) and not app.html_ui.script_sessions[panel_id].busy():
+			app.html_ui.drop_script_session(panel_id)
+		return
 	if not script_view.busy(): script_view.leave()
 
 func has_active_edits() -> bool:
+	var html_active: bool = app.html_ui != null and app.html_ui.active
+	if html_active and app.html_ui.script_sessions.has(panel_id):
+		return app.html_ui.script_sessions[panel_id].busy()
 	return script_view.busy()
 
 func refresh_sessions() -> void:

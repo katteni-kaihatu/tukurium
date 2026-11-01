@@ -17,6 +17,9 @@ var evaluated_transforms: Dictionary = {}
 var windows: Dictionary = {}
 var dock_inspector_id := ""
 var pin_when_created := ""
+var pin_when_kind := ""
+var pin_ignore_ids: Dictionary = {}
+var pin_when_kind_due := 0
 var pending_panel_close: Dictionary = {}
 var carried_reference: Dictionary = {}
 var graph_context_id := ""
@@ -69,10 +72,16 @@ func receive(body: Dictionary) -> bool:
 		evaluated_transforms.clear()
 		carried_reference.clear()
 	if body.get("kind") == "script_document_state":
-		for view in views(): view.script_view.receive(body.document)
+		for view in views():
+			if view.script_view.active: view.script_view.receive(body.document)
+		if app.html_ui != null and app.html_ui.active:
+			app.html_ui.receive_script_document(body.document)
 		return true
 	if body.get("kind") == "script_graph_state":
-		for view in views(): view.script_view.receive_graph(body.document)
+		for view in views():
+			if view.script_view.active: view.script_view.receive_graph(body.document)
+		if app.html_ui != null and app.html_ui.active:
+			app.html_ui.receive_script_graph(body.document)
 		return true
 	if body.get("kind") == "edit_sessions":
 		sessions = body.get("sessions", [])
@@ -135,17 +144,19 @@ func panel_kind(id: String) -> String:
 	var object: Dictionary = app.objects.get(id, {})
 	if object.get("resources") != null: return "resources"
 	if object.get("script_editor") != null: return "script_editor"
+	if object.get("workspace") != null: return "workspace"
 	if object.get("inspector") != null: return "inspector"
 	if object.get("creation") != null: return "creation"
 	return ""
 
 func pinnable(id: String) -> bool:
-	return panel_kind(id) in ["inspector", "resources", "script_editor"]
+	return panel_kind(id) in ["inspector", "resources", "script_editor", "workspace"]
 
 func pin_heading(id: String) -> String:
 	match panel_kind(id):
 		"resources": return "Resources"
 		"script_editor": return "Script Editor"
+		"workspace": return "Workspace"
 		_: return "Inspector"
 
 func pinned_to_me(id: String) -> bool:
@@ -197,6 +208,10 @@ func toggle_pin(id: String) -> void:
 	if pinned_to_me(id): edit(id, "panel_pin", null)
 	else: pin_panel(id)
 
+func begin_pin_drag(id: String) -> void:
+	if pin_overlays.has(id):
+		pin_overlays[id].begin_drag()
+
 func pin_target(target_id: String) -> void:
 	if not app.edit_mode or not app.editable: return
 	for id in panels.keys():
@@ -213,7 +228,8 @@ func sync_pinned_presentation() -> void:
 	var html: bool = app.html_ui != null and app.html_ui.active
 	var any_html_pin := false
 	var active_overlays := {}
-	# HTML overlay hosts one inspector window; additional inspectors use Godot 2D pins.
+	# HTML overlay: one inspector window, and every pinned Script Editor.
+	# Resources and extra inspectors keep the Godot 2D pin path.
 	var html_inspector_id := ""
 	if html:
 		for id in panels.keys():
@@ -222,7 +238,11 @@ func sync_pinned_presentation() -> void:
 				break
 	for id in panels.keys():
 		var pinned: bool = pinnable(id) and pinned_to_me(id)
-		var html_pin: bool = pinned and id == html_inspector_id
+		var kind: String = panel_kind(id)
+		var html_pin: bool = false
+		if html and pinned:
+			if kind == "inspector" and id == html_inspector_id: html_pin = true
+			elif kind == "script_editor": html_pin = true
 		var godot_pin: bool = pinned and not html_pin
 		# Owner sees HTML or Godot 2D overlay; hide the board locally while pinned.
 		panels[id].visible = not html_pin and not godot_pin
@@ -240,12 +260,40 @@ func sync_pinned_presentation() -> void:
 		if any_html_pin: app.release_cursor()
 		if app.html_ui: app.html_ui.focus_godot()
 	html_pinned_active = any_html_pin
+	if not pin_when_kind.is_empty():
+		if pin_when_kind_due > 0 and Time.get_ticks_msec() > pin_when_kind_due:
+			pin_when_kind = ""
+			pin_ignore_ids.clear()
+			pin_when_kind_due = 0
+		else:
+			for id in panels.keys():
+				if panel_kind(id) != pin_when_kind: continue
+				if pin_ignore_ids.has(id) or pinned_to_me(id): continue
+				pin_when_kind = ""
+				pin_ignore_ids.clear()
+				pin_when_kind_due = 0
+				pin_panel(id)
+				return
 	if pin_when_created.is_empty(): return
 	for id in panels.keys():
 		if panels[id].inspector_content and target_of(id) == pin_when_created and not pinned_to_me(id):
 			pin_when_created = ""
 			pin_panel(id)
 			return
+
+func _arm_pin_for_kind(kind: String) -> void:
+	pin_when_kind = kind
+	pin_when_kind_due = Time.get_ticks_msec() + 8000
+	pin_ignore_ids = {}
+	for id in panels.keys():
+		if panel_kind(id) == kind:
+			pin_ignore_ids[id] = true
+
+func _clear_pin_arm(kind: String) -> void:
+	if pin_when_kind == kind:
+		pin_when_kind = ""
+		pin_ignore_ids.clear()
+		pin_when_kind_due = 0
 
 func ensure_pin_layer() -> void:
 	if pin_layer != null and is_instance_valid(pin_layer): return
@@ -266,6 +314,8 @@ func show_godot_pin(id: String) -> void:
 	var overlay = PIN_OVERLAY.new()
 	pin_layer.add_child(overlay)
 	var viewport: SubViewport = panel.lend_viewport()
+	# Transparent clear so content's rounded glass corners are not filled with the viewport clear color.
+	viewport.transparent_bg = true
 	overlay.setup(self, id, viewport, pin_heading(id))
 	pin_overlays[id] = overlay
 	if screen.is_empty():
@@ -281,6 +331,7 @@ func hide_godot_pin(id: String) -> void:
 	var viewport: SubViewport = overlay.take_viewport()
 	overlay.queue_free()
 	if panels.has(id) and viewport != null:
+		viewport.transparent_bg = false
 		panels[id].reclaim_viewport(viewport)
 
 func open_inspector(target_id: String = "", desktop: bool = false) -> void:
@@ -313,24 +364,45 @@ func open_creation() -> void:
 	command({"kind":"structure","command":{"action":"create_creation_panel","position":[position.x,position.y,position.z],"rotation":[q.x,q.y,q.z,q.w]}}, func(result):
 		if not result.ok: app.feedback.text = result.get("message","Cannot open creation panel"))
 
-func open_resources(target_id: String = "") -> void:
+func open_resources(target_id: String = "", pin: bool = true) -> void:
 	if not app.edit_mode or not app.editable: return
 	var position := panel_spawn_position(2.3)
 	var q: Quaternion = app.camera.global_basis.get_rotation_quaternion()
 	var resolved: String = target_id if not target_id.is_empty() else str(app.selected_id)
 	var target: Variant = app.address_of(app.objects[resolved]) if app.objects.has(resolved) else null
+	if pin: _arm_pin_for_kind("resources")
 	command({"kind":"structure","command":{"action":"create_resources_panel","target":target,"position":[position.x,position.y,position.z],"rotation":[q.x,q.y,q.z,q.w]}}, func(result):
-		if not result.ok: app.feedback.text = str(result.get("message", "Cannot open Resources")))
+		if not result.ok:
+			if pin: _clear_pin_arm("resources")
+			app.feedback.text = str(result.get("message", "Cannot open Resources")))
 
-func open_script_editor(target_id: String = "", script_id: String = "") -> void:
+func open_workspace(pin: bool = true) -> void:
+	if not app.edit_mode or not app.editable: return
+	for id in panels.keys():
+		if panel_kind(str(id)) == "workspace":
+			if pin and not pinned_to_me(str(id)):
+				pin_panel(str(id))
+			return
+	var position := panel_spawn_position(2.0)
+	var q: Quaternion = app.camera.global_basis.get_rotation_quaternion()
+	if pin: _arm_pin_for_kind("workspace")
+	command({"kind":"structure","command":{"action":"create_workspace_panel","position":[position.x,position.y,position.z],"rotation":[q.x,q.y,q.z,q.w]}}, func(result):
+		if not result.ok:
+			if pin: _clear_pin_arm("workspace")
+			app.feedback.text = str(result.get("message", "Cannot open Workspace")))
+
+func open_script_editor(target_id: String = "", script_id: String = "", pin: bool = true) -> void:
 	if not app.edit_mode or not app.editable: return
 	var position := panel_spawn_position(2.4)
 	var q: Quaternion = app.camera.global_basis.get_rotation_quaternion()
 	var resolved: String = target_id if not target_id.is_empty() else str(app.selected_id)
 	var target: Variant = app.address_of(app.objects[resolved]) if app.objects.has(resolved) else null
 	var sid: Variant = script_id if not script_id.is_empty() else null
+	if pin: _arm_pin_for_kind("script_editor")
 	command({"kind":"structure","command":{"action":"create_script_editor_panel","target":target,"script_id":sid,"position":[position.x,position.y,position.z],"rotation":[q.x,q.y,q.z,q.w]}}, func(result):
-		if not result.ok: app.feedback.text = str(result.get("message", "Cannot open Script Editor")))
+		if not result.ok:
+			if pin: _clear_pin_arm("script_editor")
+			app.feedback.text = str(result.get("message", "Cannot open Script Editor")))
 
 func duplicate_panel(id: String) -> void:
 	if not app.objects.has(id): return
@@ -341,6 +413,7 @@ func sync() -> void:
 		if not app.objects.has(id):
 			hide_godot_pin(id)
 			panels[id].content.finish_all()
+			if app.html_ui != null: app.html_ui.drop_script_session(id)
 			panels.erase(id)
 			if capture_id == id: capture_id = ""
 			if keyboard_id == id: keyboard_id = ""

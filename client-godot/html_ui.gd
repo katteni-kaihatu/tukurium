@@ -1,5 +1,6 @@
 extends Node
-## Screen HTML for the header and inspector. Shared edits still go through the Engine.
+## Screen HTML for the header, inspector, and Script Editor. Shared edits still go through the Engine.
+const SCRIPT_SESSION = preload("res://html_script_session.gd")
 
 var app
 var server := TCPServer.new()
@@ -8,15 +9,21 @@ var pid := -1
 var inbox := ""
 var last_state := ""
 var last_panel_state := ""
+var last_script_panel_state := ""
 var next_push := 0
 var started_msec := 0
 var warned := false
 var active := false
 var notice := ""
+var script_notice := ""
 var panel_textures: Dictionary = {}
 var panel_queue: Array = []
 var panel_cursor := 0
+var script_panel_cursor := 0
 var script_cache: Dictionary = {}
+var script_sessions: Dictionary = {}
+var script_drafts: Dictionary = {}
+var script_params: Dictionary = {}
 
 func setup(owner) -> void:
 	app = owner
@@ -72,10 +79,13 @@ func _process(_delta: float) -> void:
 		drop_host()
 		return
 	read_commands()
+	for session in script_sessions.values():
+		session.tick()
 	if Time.get_ticks_msec() >= next_push:
 		next_push = Time.get_ticks_msec() + 100
 		push(false)
 		push_panel(false)
+		push_script_panel(false)
 
 func _exit_tree() -> void:
 	if peer: peer.disconnect_from_host()
@@ -99,35 +109,114 @@ func push(force: bool) -> void:
 	last_state = text
 	write_line(text)
 
-func panel_ids() -> Array:
+func inspector_panel_ids() -> Array:
 	var ids := []
 	for id in app.world_panels.panels.keys():
-		if not app.world_panels.panels[id].inspector_content: continue
+		if app.world_panels.panel_kind(str(id)) != "inspector": continue
 		if app.world_panels.pinned_to_me(id): continue
 		ids.append(id)
 	return ids
 
+func script_panel_ids() -> Array:
+	var ids := []
+	for id in app.world_panels.panels.keys():
+		if app.world_panels.panel_kind(str(id)) != "script_editor": continue
+		if app.world_panels.pinned_to_me(id): continue
+		ids.append(id)
+	return ids
+
+func ensure_script_session(panel_id: String):
+	if script_sessions.has(panel_id): return script_sessions[panel_id]
+	var session = SCRIPT_SESSION.new()
+	session.setup(self, panel_id)
+	script_sessions[panel_id] = session
+	return session
+
+func drop_script_session(panel_id: String) -> void:
+	if not script_sessions.has(panel_id): return
+	script_sessions[panel_id].leave()
+	script_sessions.erase(panel_id)
+	script_drafts.erase(panel_id)
+	script_params.erase(panel_id)
+
 func push_panel(force: bool) -> void:
-	var ids: Array = panel_ids()
+	var ids: Array = inspector_panel_ids()
 	if ids.is_empty():
 		last_panel_state = ""
 		return
 	if panel_cursor >= ids.size(): panel_cursor = 0
 	var id := str(ids[panel_cursor])
 	panel_cursor = (panel_cursor + 1) % ids.size()
-	var payload := {"type": "panel_state", "id": id, "inspector": inspector_model(id, "panel")}
+	var payload := {"type": "panel_state", "surface": "inspector", "id": id, "inspector": inspector_model(id, "panel")}
 	var text := JSON.stringify(payload)
 	if not force and text == last_panel_state: return
 	last_panel_state = text
 	write_line(text)
 
+func push_script_panel(force: bool) -> void:
+	var ids: Array = script_panel_ids()
+	# Prefer a panel with an open collaborative draft.
+	var preferred := ""
+	for id in ids:
+		var session = script_sessions.get(id, null)
+		if session != null and (not session.document.is_empty() or not session.graph_document.is_empty()):
+			preferred = str(id)
+			break
+	if preferred.is_empty():
+		if ids.is_empty():
+			last_script_panel_state = ""
+			return
+		if script_panel_cursor >= ids.size(): script_panel_cursor = 0
+		preferred = str(ids[script_panel_cursor])
+		script_panel_cursor = (script_panel_cursor + 1) % ids.size()
+	push_script_state(preferred, force)
+
+func push_script_state(panel_id: String, force: bool = false) -> void:
+	if panel_id.is_empty() or not app.objects.has(panel_id): return
+	if app.world_panels.panel_kind(panel_id) != "script_editor": return
+	if app.world_panels.pinned_to_me(panel_id):
+		push(true)
+		return
+	var payload := {"type": "panel_state", "surface": "script_editor", "id": panel_id, "scriptEditor": script_editor_model(panel_id, "panel")}
+	var text := JSON.stringify(payload)
+	if not force and text == last_script_panel_state: return
+	last_script_panel_state = text
+	write_line(text)
+
+func push_document_state(panel_id: String) -> void:
+	if not script_sessions.has(panel_id): return
+	var session = script_sessions[panel_id]
+	write_line(JSON.stringify({
+		"type": "script_document_state",
+		"panel": panel_id,
+		"document": session.document,
+		"client_id": session.client_id,
+		"feedback": session.feedback,
+	}))
+
+func push_graph_state(panel_id: String) -> void:
+	if not script_sessions.has(panel_id): return
+	var session = script_sessions[panel_id]
+	write_line(JSON.stringify({
+		"type": "script_graph_state",
+		"panel": panel_id,
+		"document": session.graph_latest if not session.graph_latest.is_empty() else session.graph_document,
+		"feedback": session.feedback,
+	}))
+
 func focus_godot() -> void:
 	if active: write_line(JSON.stringify({"type": "focus_parent"}))
+
+func panel_surface(id: String) -> String:
+	var kind: String = app.world_panels.panel_kind(id)
+	if kind == "script_editor": return "script_editor"
+	return "inspector"
 
 func panel_pointer(id: String, point: Vector2, event: InputEventMouse) -> void:
 	if not active: return
 	var message := {
 		"type": "panel_pointer",
+		"surface": panel_surface(id),
 		"id": id,
 		"x": point.x,
 		"y": point.y,
@@ -159,6 +248,7 @@ func panel_key(id: String, event: InputEventKey) -> void:
 	if key.is_empty(): return
 	write_line(JSON.stringify({
 		"type": "panel_key",
+		"surface": panel_surface(id),
 		"id": id,
 		"key": key,
 		"ctrl": event.ctrl_pressed,
@@ -217,6 +307,25 @@ func handle(message: Dictionary) -> void:
 							app.world_panels.edit(str(pin_id), "panel_pin", null)
 					push(true)
 					focus_godot()
+				"close_inspector":
+					notice = ""
+					app.world_panels.html_text_focus = false
+					var close_id: String = str(message.get("panel", ""))
+					if close_id.is_empty() or not app.objects.has(close_id) or app.world_panels.panel_kind(close_id) != "inspector":
+						close_id = ""
+						for id in app.world_panels.pinned_ids():
+							if app.world_panels.panel_kind(str(id)) != "inspector": continue
+							close_id = str(id)
+							break
+						if close_id.is_empty():
+							for id in app.world_panels.panels.keys():
+								if app.world_panels.panel_kind(str(id)) != "inspector": continue
+								close_id = str(id)
+								break
+					if not close_id.is_empty() and app.objects.has(close_id):
+						app.world_panels.close_panel(close_id)
+					push(true)
+					focus_godot()
 				"place":
 					var placed := false
 					for id in app.world_panels.pinned_ids():
@@ -254,6 +363,32 @@ func handle(message: Dictionary) -> void:
 					graph_apply(message)
 				"open_driver":
 					open_driver(message)
+				"pin_script_editor":
+					pin_script_editor(message)
+				"close_script_editor":
+					close_script_editor(message)
+				"place_script_editor":
+					place_script_editor(message)
+				"script_select":
+					script_select(message)
+				"script_add":
+					script_add(message)
+				"script_remove":
+					script_remove(message)
+				"script_run":
+					script_run(message)
+				"script_reload":
+					script_reload(message)
+				"script_click":
+					script_click(message)
+				"script_draft":
+					script_draft(message)
+				"script_cursor":
+					script_cursor(message)
+				"script_param":
+					script_param(message)
+				"script_insert_ref":
+					script_insert_ref(message)
 		"edit":
 			apply_edit(message)
 
@@ -289,6 +424,7 @@ func snapshot() -> Dictionary:
 			"inspector": app.world_panels.pinned_ids().any(func(id): return app.world_panels.panel_kind(str(id)) == "inspector"),
 		},
 		"inspector": pinned_view(),
+		"scriptEditors": pinned_script_views(),
 	}
 
 func pinned_view() -> Dictionary:
@@ -296,6 +432,94 @@ func pinned_view() -> Dictionary:
 		if app.world_panels.panel_kind(str(id)) == "inspector":
 			return inspector_model(str(id), "overlay")
 	return {"open": false}
+
+func pinned_script_views() -> Array:
+	var list := []
+	for id in app.world_panels.pinned_ids():
+		if app.world_panels.panel_kind(str(id)) != "script_editor": continue
+		list.append(script_editor_model(str(id), "overlay"))
+	return list
+
+func script_editor_model(panel_id: String, mode: String) -> Dictionary:
+	if not app.objects.has(panel_id): return {"open": false}
+	var screen: Dictionary = {}
+	var attachment = app.objects[panel_id].panel.get("attachment", null)
+	if attachment is Dictionary and attachment.get("screen") is Dictionary:
+		screen = attachment.screen
+	var target: String = app.world_panels.target_of(panel_id)
+	var view = app.objects[panel_id].get("script_editor", {})
+	var selected := ""
+	if view is Dictionary and view.get("script_id") != null:
+		selected = str(view.script_id)
+	var session = ensure_script_session(panel_id)
+	if not target.is_empty():
+		session.refresh(target, selected if not selected.is_empty() else null)
+	var scripts := []
+	if not target.is_empty() and app.objects.has(target):
+		for script in app.objects[target].get("scripts", []):
+			var source := str(script.get("source", ""))
+			var draft: Variant = null
+			var is_graph: bool = source.begins_with("@tukurium-graph-v1\n")
+			if str(script.id) == session.script_id and not session.draft_text.is_empty() and not is_graph:
+				draft = session.draft_text
+			elif script_drafts.has(panel_id) and script_drafts[panel_id].get("script") == str(script.id):
+				draft = script_drafts[panel_id].get("source")
+			var status := "Paused"
+			if not script_error(str(script.id)).is_empty(): status = "Error"
+			elif script.get("enabled", false): status = "Running"
+			var schema_fields := []
+			for field in script.get("schema", {}).get("fields", []):
+				schema_fields.append({
+					"id": str(field.id),
+					"label": str(field.get("label", field.id)),
+					"value_type": str(field.get("value_type", "")),
+				})
+			var graph_data = {}
+			if is_graph:
+				var parsed = JSON.parse_string(source.substr("@tukurium-graph-v1\n".length()))
+				if parsed is Dictionary: graph_data = parsed
+			if is_graph and str(script.id) == session.script_id and not session.graph_latest.is_empty():
+				graph_data = session.graph_latest.get("graph", graph_data)
+			scripts.append({
+				"id": str(script.id),
+				"name": str(script.get("schema", {}).get("name", "Script")),
+				"enabled": script.get("enabled", false),
+				"status": status,
+				"error": script_error(str(script.id)),
+				"source": source,
+				"draft": draft,
+				"dirty": draft != null and str(draft) != source,
+				"graph": is_graph,
+				"kindLabel": "Node graph" if is_graph else "Luau",
+				"graphData": graph_data,
+				"parameters": script.get("parameters", {}),
+				"schemaFields": schema_fields,
+				"hasInteract": bool(script.get("schema", {}).get("has_interact", false)),
+				"driveHint": "local Drive" if bool(script.get("schema", {}).get("has_drive", false)) else "shared Write on host",
+				"revision": script.get("revision", 0),
+			})
+	return {
+		"open": true,
+		"mode": mode,
+		"panelId": panel_id,
+		"rect": screen.get("rect", []),
+		"editable": app.editable,
+		"readonly": false,
+		"busy": session.busy(),
+		"shared": true,
+		"target": target,
+		"targetName": object_name(target) if not target.is_empty() else "",
+		"scriptId": session.script_id if not session.script_id.is_empty() else selected,
+		"scripts": scripts,
+		"feedback": session.feedback if not session.feedback.is_empty() else script_notice,
+		"hint": "Luau はテキスト、Node graph は配線で同じ Script を書きます。左の一覧で切り替えてください。Apply で実行。上限 4。",
+		"message": "Resources から Script を選ぶか、Slot を選んでください。" if target.is_empty() else "",
+	}
+
+func script_error(id: String) -> String:
+	for status in app.local_script_statuses + app.script_statuses:
+		if status.script_id == id and status.get("error") is String: return status.error
+	return ""
 
 func inspector_model(panel_id: String, mode: String) -> Dictionary:
 	if not app.objects.has(panel_id): return {"open": false}
@@ -597,51 +821,51 @@ func open_script(message: Dictionary) -> void:
 	focus_godot()
 
 func apply_script(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
 	var target := str(message.get("target", ""))
 	var script := str(message.get("script", ""))
 	var source := str(message.get("source", ""))
+	if target.is_empty() and not panel.is_empty():
+		target = app.world_panels.target_of(panel)
 	if target.is_empty() or script.is_empty() or not app.objects.has(target): return
 	var current: Dictionary = {}
 	for entry in app.objects[target].get("scripts", []):
 		if str(entry.id) == script: current = entry
 	if current.is_empty(): return
 	script_cache[script] = source
-	app.world_panels.command({"kind":"script","command":{"target":app.address_of(app.objects[target]),"action":"update","script_id":script,"expected_revision":current.revision,"source":source,"enabled":current.enabled,"parameters":current.get("parameters", {})}}, func(result):
-		notice = "" if result.ok else str(result.get("message", "Script rejected"))
-		push(true); push_panel(true))
+	var parameters: Dictionary = current.get("parameters", {}).duplicate(true)
+	if script_params.has(panel):
+		parameters.merge(script_params[panel], true)
+	if not panel.is_empty() and script_sessions.has(panel):
+		var session = script_sessions[panel]
+		session.draft_text = source
+		session.apply_code(bool(message.get("enabled", current.enabled)), parameters)
+		return
+	app.world_panels.command({"kind":"script","command":{"target":app.address_of(app.objects[target]),"action":"update","script_id":script,"expected_revision":current.revision,"source":source,"enabled":bool(message.get("enabled", current.enabled)),"parameters":parameters}}, func(result):
+		script_notice = "" if result.ok else str(result.get("message", "Script rejected"))
+		push(true); push_panel(true); push_script_state(panel, true))
 
 func graph_op(message: Dictionary) -> void:
 	var panel := str(message.get("panel", ""))
 	if panel.is_empty() or not app.objects.has(panel): return
-	var target: String = app.world_panels.target_of(panel)
-	var script: Variant = app.objects[panel].inspector.get("script_id")
-	if target.is_empty() or script == null: return
-	var input := {
-		"target": app.address_of(app.objects[target]),
-		"script_id": str(script),
-		"client_id": app.world_panels.client_id + "/html",
-		"action": "edit",
-		"ops": message.get("ops", []),
-	}
-	app.requests.request({"kind":"script_graph","request":input}, func(result):
-		notice = "" if result.get("ok", false) else str(result.get("message", "Graph edit rejected"))
-		push_panel(true), ["request","request_id"], "request_id", 10000, "script_graph_result")
+	var session = ensure_script_session(panel)
+	var ops = message.get("ops", [])
+	if ops is Array:
+		session.queue_graph_ops(ops)
+		push_script_state(panel, true)
 
 func graph_apply(message: Dictionary) -> void:
 	var panel := str(message.get("panel", ""))
 	if panel.is_empty() or not app.objects.has(panel): return
 	var target: String = app.world_panels.target_of(panel)
-	var script: Variant = app.objects[panel].inspector.get("script_id")
-	if target.is_empty() or script == null: return
-	var input := {
-		"target": app.address_of(app.objects[target]),
-		"script_id": str(script),
-		"client_id": app.world_panels.client_id + "/html",
-		"action": "apply",
-	}
-	app.requests.request({"kind":"script_graph","request":input}, func(result):
-		notice = "" if result.get("ok", false) else str(result.get("message", "Graph apply rejected"))
-		push(true); push_panel(true), ["request","request_id"], "command_id", 10000, "result")
+	var session = ensure_script_session(panel)
+	if target.is_empty() or session.script_id.is_empty(): return
+	var current: Dictionary = session.current_script()
+	if current.is_empty(): return
+	var parameters: Dictionary = current.get("parameters", {}).duplicate(true)
+	if script_params.has(panel):
+		parameters.merge(script_params[panel], true)
+	session.request_apply_graph(bool(current.get("enabled", false)), parameters)
 
 func open_driver(message: Dictionary) -> void:
 	var panel := str(message.get("panel", ""))
@@ -656,3 +880,249 @@ func open_driver(message: Dictionary) -> void:
 	app.world_panels.open_script_editor(owner, str(driver.id))
 	app.world_panels.html_text_focus = false
 	focus_godot()
+
+func pin_script_editor(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	if panel.is_empty() or app.world_panels.panel_kind(panel) != "script_editor": return
+	app.world_panels.toggle_pin(panel)
+	app.world_panels.html_text_focus = false
+	push(true)
+	push_script_state(panel, true)
+	focus_godot()
+
+func close_script_editor(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	if panel.is_empty(): return
+	var session = script_sessions.get(panel, null)
+	if session != null and session.busy():
+		script_notice = "下書きの同期を待っています…"
+		push_script_state(panel, true)
+		return
+	drop_script_session(panel)
+	app.world_panels.close_panel(panel)
+	push(true)
+
+func place_script_editor(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	if panel.is_empty() or not app.objects.has(panel): return
+	if app.world_panels.panel_kind(panel) != "script_editor": return
+	app.world_panels.pin_panel_rect(panel, [message.get("x", 0), message.get("y", 0), message.get("w", 0), message.get("h", 0)], float(message.get("aspect", 1.6)))
+	push(true)
+
+func script_select(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	var script := str(message.get("script", ""))
+	if panel.is_empty() or not app.objects.has(panel): return
+	var session = ensure_script_session(panel)
+	if session.busy():
+		script_notice = "Synchronizing the draft before switching…"
+		push_script_state(panel, true)
+		return
+	app.world_panels.edit(panel, "script_editor_script_id", null if script.is_empty() else script, func(_r):
+		push_script_state(panel, true))
+
+func script_add(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	var kind := str(message.get("kind", "blank"))
+	var target: String = app.world_panels.target_of(panel)
+	if target.is_empty() or not app.objects.has(target) or not app.editable: return
+	var names: Array = app.objects[target].get("scripts", []).map(func(c): return c.schema.name)
+	if names.size() >= 4: return
+	var source := ""
+	if kind == "graph":
+		var number := 1
+		while names.has("Graph%d" % number): number += 1
+		source = "@tukurium-graph-v1\n" + JSON.stringify({"name": "Graph%d" % number, "nodes": [{"id": "n1", "kind": "on_update", "x": 40.0, "y": 80.0}], "links": []})
+	else:
+		var number := 1
+		while names.has("Script%d" % number): number += 1
+		source = "return {\n    name = \"Script%d\",\n    fields = {},\n    drive = function(ctx)\n        -- Derive values with ctx:drive. Use ctx.time or ctx.world_time.\n    end\n}\n" % number
+	app.world_panels.command({"kind": "script", "command": {"target": app.address_of(app.objects[target]), "action": "attach", "source": source}}, func(result):
+		script_notice = "" if result.ok else str(result.get("message", "Could not attach script"))
+		if result.ok and app.objects.has(target):
+			var attached: Array = app.objects[target].get("scripts", [])
+			if not attached.is_empty():
+				var pick := str(attached[attached.size() - 1].id)
+				app.world_panels.edit(panel, "script_editor_script_id", pick, func(_r):
+					push(true); push_script_state(panel, true))
+				return
+		push(true); push_script_state(panel, true))
+
+func script_remove(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	var script := str(message.get("script", ""))
+	var target: String = app.world_panels.target_of(panel)
+	if target.is_empty() or script.is_empty() or not app.objects.has(target): return
+	var current: Dictionary = {}
+	for entry in app.objects[target].get("scripts", []):
+		if str(entry.id) == script: current = entry
+	if current.is_empty(): return
+	app.world_panels.command({"kind": "script", "command": {"target": app.address_of(app.objects[target]), "action": "remove", "script_id": script, "expected_revision": current.revision}}, func(result):
+		script_notice = "" if result.ok else str(result.get("message", "Could not remove script"))
+		if result.ok and script_sessions.has(panel):
+			script_sessions[panel].leave()
+		push(true); push_script_state(panel, true))
+
+func script_run(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	var script := str(message.get("script", ""))
+	var target: String = app.world_panels.target_of(panel)
+	if target.is_empty() or script.is_empty() or not app.objects.has(target): return
+	var current: Dictionary = {}
+	for entry in app.objects[target].get("scripts", []):
+		if str(entry.id) == script: current = entry
+	if current.is_empty(): return
+	app.world_panels.command({"kind": "script", "command": {
+		"target": app.address_of(app.objects[target]),
+		"action": "update",
+		"script_id": script,
+		"expected_revision": current.revision,
+		"source": current.get("source", ""),
+		"enabled": bool(message.get("enabled", true)),
+		"parameters": current.get("parameters", {}),
+	}}, func(result):
+		script_notice = "" if result.ok else str(result.get("message", "Could not update run state"))
+		push(true); push_script_state(panel, true))
+
+func script_reload(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	if panel.is_empty(): return
+	var session = ensure_script_session(panel)
+	session.reload()
+	script_drafts.erase(panel)
+	push_script_state(panel, true)
+
+func script_click(message: Dictionary) -> void:
+	var target := str(message.get("target", ""))
+	var script := str(message.get("script", ""))
+	if target.is_empty() or not app.objects.has(target): return
+	app.world_panels.command({"kind": "script", "command": {"target": app.address_of(app.objects[target]), "action": "interact", "script_id": script}}, func(result):
+		script_notice = "" if result.ok else str(result.get("message", "Interact rejected"))
+		push_script_state(str(message.get("panel", "")), true))
+
+func script_draft(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	var script := str(message.get("script", ""))
+	var source := str(message.get("source", ""))
+	if panel.is_empty(): return
+	# Keep the draft silently. Pushing panel_state on every keystroke reloads HTML and
+	# snaps the caret back to the previous text.
+	script_drafts[panel] = {"script": script, "source": source}
+	var session = ensure_script_session(panel)
+	if session.script_id == script or session.script_id.is_empty():
+		session.set_draft(source)
+
+func script_cursor(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	if panel.is_empty() or not script_sessions.has(panel): return
+	script_sessions[panel].set_cursor(int(message.get("offset", 0)))
+
+func script_param(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	var script := str(message.get("script", ""))
+	var field := str(message.get("field", ""))
+	var target: String = app.world_panels.target_of(panel)
+	if panel.is_empty() or target.is_empty() or script.is_empty() or field.is_empty() or not app.objects.has(target): return
+	var current: Dictionary = {}
+	for entry in app.objects[target].get("scripts", []):
+		if str(entry.id) == script: current = entry
+	if current.is_empty(): return
+	var values: Dictionary = current.get("parameters", {}).duplicate(true)
+	if script_params.has(panel):
+		values.merge(script_params[panel], true)
+	values[field] = message.get("value")
+	script_params[panel] = values.duplicate(true)
+	app.world_panels.command({"kind": "script", "command": {
+		"target": app.address_of(app.objects[target]),
+		"action": "update",
+		"script_id": script,
+		"expected_revision": current.revision,
+		"source": current.get("source", ""),
+		"enabled": current.enabled,
+		"parameters": values,
+	}}, func(result):
+		script_notice = "" if result.ok else str(result.get("message", "Parameter rejected"))
+		if result.ok: script_params.erase(panel)
+		push_script_state(panel, true))
+
+func script_insert_ref(message: Dictionary) -> void:
+	var panel := str(message.get("panel", ""))
+	var script := str(message.get("script", ""))
+	var operation := str(message.get("operation", "Read"))
+	var reference = message.get("reference", {})
+	if panel.is_empty() or script.is_empty() or not reference is Dictionary: return
+	var target: String = app.world_panels.target_of(panel)
+	if target.is_empty() or not app.objects.has(target): return
+	var current: Dictionary = {}
+	for entry in app.objects[target].get("scripts", []):
+		if str(entry.id) == script: current = entry
+	if current.is_empty(): return
+	var source := str(script_drafts.get(panel, {}).get("source", current.get("source", "")))
+	if script_sessions.has(panel) and not script_sessions[panel].draft_text.is_empty():
+		source = script_sessions[panel].draft_text
+	var field_id := str(reference.get("field_id", "field"))
+	var binding := "ref_" + field_id
+	var number := 2
+	while source.contains(binding + " =") or current.schema.fields.any(func(field): return field.id == binding):
+		binding = "ref_" + field_id + "_" + str(number)
+		number += 1
+	var expression := "ctx.self.%s.%s" % [current.schema.name, binding]
+	var snippet := "ctx:read(%s)" % expression
+	var value = reference.get("value")
+	if operation == "Write":
+		snippet = "ctx:write_field(%s, %s)" % [expression, JSON.stringify(value) if value is String else str(value)]
+	elif operation == "Drive":
+		snippet = "ctx:drive_field(%s, %s)" % [expression, JSON.stringify(value) if value is String else str(value)]
+	var fields_at := source.find("fields = {")
+	if fields_at < 0: fields_at = source.find("fields={")
+	if fields_at >= 0:
+		var open_at := source.find("{", fields_at)
+		if open_at >= 0:
+			var declaration := "\n        %s = { type = \"field_ref\", label = \"%s\" }," % [binding, field_id]
+			source = source.substr(0, open_at + 1) + declaration + source.substr(open_at + 1)
+	source += "\n" + snippet
+	script_drafts[panel] = {"script": script, "source": source}
+	if script_sessions.has(panel):
+		script_sessions[panel].set_draft(source)
+	var values: Dictionary = current.get("parameters", {}).duplicate(true)
+	values[binding] = {
+		"kind": "field",
+		"target": reference.get("target"),
+		"field_id": field_id,
+	}
+	script_params[panel] = values
+	script_notice = "Reference and code added. Apply code to save."
+	push_script_state(panel, true)
+
+func receive_script_document(document: Dictionary) -> void:
+	for session in script_sessions.values():
+		session.receive(document)
+
+func receive_script_graph(document: Dictionary) -> void:
+	for session in script_sessions.values():
+		session.receive_graph(document)
+
+func offer_carried_reference(panel_id: String) -> void:
+	var carried: Dictionary = app.world_panels.carried_reference
+	if carried.is_empty() or panel_id.is_empty(): return
+	var reference: Dictionary = carried.duplicate(true)
+	var owner_id := str(reference.get("target", {}).get("instance_id", ""))
+	var field_id := str(reference.get("field_id", ""))
+	var fields: Array = app.objects.get(owner_id, {}).get("fields", [])
+	var matched: Array = fields.filter(func(field): return field.id == field_id and int(field.component_id) == int(reference.target.get("local_id", -1)))
+	if matched.is_empty(): return
+	var schemas: Array = app.world_panels.component_schemas.filter(func(schema): return int(schema.local_id) == int(reference.target.local_id))
+	var field_schemas: Array = [] if schemas.is_empty() else schemas[0].fields.filter(func(field): return field.id == field_id)
+	write_line(JSON.stringify({
+		"type": "script_offer_ref",
+		"panel": panel_id,
+		"reference": {
+			"kind": "field",
+			"target": reference.target,
+			"field_id": field_id,
+			"value": matched[0].value,
+		},
+		"script_write": not field_schemas.is_empty() and field_schemas[0].get("script_write", false),
+		"script_drive": not field_schemas.is_empty() and field_schemas[0].get("script_drive", false),
+	}))
+	app.world_panels.carried_reference.clear()

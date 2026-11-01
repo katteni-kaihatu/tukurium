@@ -87,6 +87,7 @@ func build_layout() -> void:
 	title.text = "Inspector"
 	title.add_theme_font_size_override("font_size", 27)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.mouse_filter = Control.MOUSE_FILTER_PASS
 	header.add_child(title)
 	if not desktop:
 		var pin = PIN_BUTTON.new()
@@ -96,6 +97,11 @@ func build_layout() -> void:
 	add_button(header, "+", func(): manager.duplicate_panel(panel_id))
 	add_button(header, "↗", func(): manager.open_inspector(target_id, true)).tooltip_text = "Inspect this object in a separate local window"
 	add_button(header, "×", func(): manager.close_panel(panel_id)).tooltip_text = "Delete this shared inspector for everyone"
+	if not desktop:
+		header.gui_input.connect(func(event: InputEvent):
+			if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed and manager.pinned_to_me(panel_id):
+				manager.begin_pin_drag(panel_id)
+				header.accept_event())
 	column.add_child(target_picker)
 	var actions := HBoxContainer.new()
 	column.add_child(actions)

@@ -510,6 +510,18 @@ pub static REGISTRY: LazyLock<Registry> = LazyLock::new(|| Registry {
             apply: |w, e, id, v| crate::panels::write_field(w, e, id, v),
         },
         ComponentRegistration {
+            type_id: "WorkspaceView",
+            local_id: 22,
+            fields: vec![],
+            present: |o| o.workspace.is_some(),
+            project: |_| json!({}),
+            restore: |o, _| {
+                o.workspace = Some(kokoverse_protocol::WorkspaceView {});
+                Ok(())
+            },
+            apply: no_edit,
+        },
+        ComponentRegistration {
             type_id: "WorldText",
             local_id: 11,
             fields: vec![

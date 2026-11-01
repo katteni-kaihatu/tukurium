@@ -1,9 +1,12 @@
 const mascot = document.querySelector("#mascot");
 const inspector = document.querySelector("#inspector");
 const mount = document.querySelector("#inspector-mount");
+const scriptHost = document.querySelector("#script-editors");
+const scriptWindows = new Map();
 let latest = null;
 let rectSig = "";
 let placedSig = "";
+const scriptPlaced = new Map();
 
 mascot.src = window.ipc ? "brand/mascot.png" : "../client-godot/assets/branding/mascot.png";
 window.tukuriumInspector.mount(mount);
@@ -69,8 +72,42 @@ function placeWindow(view) {
   inspector.style.height = `${h * window.innerHeight}px`;
 }
 
+function syncScriptEditors(list) {
+  const wanted = new Set();
+  (list || []).forEach((view) => {
+    if (!view || !view.open || !view.panelId) return;
+    wanted.add(view.panelId);
+    let entry = scriptWindows.get(view.panelId);
+    if (!entry) {
+      entry = window.tukuriumScriptEditor.createWindow(scriptHost, Object.assign({ mode: "overlay" }, view));
+      scriptWindows.set(view.panelId, entry);
+    } else {
+      entry.ui.apply(Object.assign({ mode: "overlay", open: true }, view));
+    }
+    if (view.rect && !(entry.ui.state && entry.ui.state.holdRect)) {
+      const key = JSON.stringify(view.rect.map((value) => Math.round(Number(value) * 1000)));
+      if (scriptPlaced.get(view.panelId) !== key) {
+        scriptPlaced.set(view.panelId, key);
+        entry.ui.place(view.rect);
+      }
+    }
+  });
+  for (const [id, entry] of [...scriptWindows.entries()]) {
+    if (wanted.has(id)) continue;
+    entry.wrap.remove();
+    scriptWindows.delete(id);
+    scriptPlaced.delete(id);
+  }
+}
+
 function apply(message) {
-  if (!message || message.type !== "state") return;
+  if (!message) return;
+  if (message.type === "script_document_state" || message.type === "script_graph_state" || message.type === "script_offer_ref") {
+    window.tukuriumScriptEditor.receive(message);
+    report(false);
+    return;
+  }
+  if (message.type !== "state") return;
   latest = message;
   renderHeader(message.header);
   const view = message.inspector || { open: false };
@@ -78,9 +115,9 @@ function apply(message) {
   if (view.open) {
     placeWindow(view);
     window.tukuriumInspector.apply(Object.assign({ mode: "overlay" }, view));
-  } else {
-    report(false);
   }
+  syncScriptEditors(message.scriptEditors || []);
+  report(false);
 }
 
 window.tukurium = { apply, report };
@@ -93,12 +130,10 @@ document.querySelector(".modes").addEventListener("click", (event) => {
 document.querySelector("#view").addEventListener("click", () => post({ type: "command", name: "view" }));
 document.querySelector("#open-inspector").addEventListener("click", () => post({ type: "command", name: "inspector" }));
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest("#inspector input, #inspector textarea, #inspector select")) return;
-  if (event.target.closest("#inspector")) {
-    // Keep typing in the overlay, but return OS focus to Godot after non-field clicks
-    // so WASD still moves when the inspector is only being looked at.
+  if (event.target.closest("#inspector input, #inspector textarea, #inspector select, #script-editors input, #script-editors textarea, #script-editors select, .CodeMirror")) return;
+  if (event.target.closest("#inspector, #script-editors .script-window")) {
     setTimeout(() => {
-      if (!window.tukuriumInspector.editingField()) post({ type: "focus_parent" });
+      if (!window.tukuriumInspector.editingField() && !window.tukuriumScriptEditor.editingField()) post({ type: "focus_parent" });
     }, 0);
     return;
   }
@@ -109,10 +144,13 @@ document.addEventListener("focusin", (event) => {
   if (event.target.closest("#inspector input, #inspector textarea, #inspector select")) {
     window.tukuriumInspector.notifyFocus(true);
   }
+  if (event.target.closest("#script-editors input, #script-editors textarea, #script-editors select, .CodeMirror")) {
+    post({ type: "panel_focus", focused: true, panel: event.target.closest("[data-panel]")?.dataset.panel || "" });
+  }
 });
 document.addEventListener("focusout", () => {
   setTimeout(() => {
-    if (!window.tukuriumInspector.editingField()) {
+    if (!window.tukuriumInspector.editingField() && !window.tukuriumScriptEditor.editingField()) {
       window.tukuriumInspector.notifyFocus(false);
       post({ type: "focus_parent" });
     }
@@ -140,16 +178,16 @@ if (!window.ipc) {
       objects: [{ id: "cube", name: "Cube", parent: "" }],
       sections: [
         { name: "Slot", fields: [{ id: "name", label: "Name", type: "string", text: "Cube" }] },
-        { name: "Transform", fields: [
-          { id: "position", label: "Position", type: "vec3", axes: ["X", "Y", "Z"], values: ["0.000", "1.000", "0.000"] },
-          { id: "rotation", label: "Rotation", type: "quat", axes: ["X", "Y", "Z"], values: ["0.000", "45.000", "0.000"] },
-          { id: "scale", label: "Scale", type: "vec3", axes: ["X", "Y", "Z"], values: ["1.000", "1.000", "1.000"] },
-        ] },
       ],
       catalog: [{ typeId: "WorldText", disabled: false }],
       shapes: ["box", "sphere", "quad"],
       scripts: [],
     },
+    scriptEditors: [{
+      open: true, mode: "overlay", panelId: "script-panel", target: "cube", targetName: "Cube", editable: true,
+      scriptId: "s1", rect: [0.55, 0.12, 0.4, 0.7],
+      scripts: [{ id: "s1", name: "Script1", enabled: true, status: "Running", source: "return {\n  name = \"Script1\",\n  fields = {},\n}\n", graph: false, parameters: {}, schemaFields: [] }],
+    }],
   });
 } else {
   report(false);

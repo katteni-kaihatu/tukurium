@@ -5,10 +5,12 @@ const INSPECTOR_VIEW = preload("res://inspector_view.gd")
 const CREATION_VIEW = preload("res://creation_panel.gd")
 const RESOURCES_VIEW = preload("res://resources_view.gd")
 const SCRIPT_EDITOR_VIEW = preload("res://script_editor_view.gd")
+const WORKSPACE_VIEW = preload("res://workspace_view.gd")
 var panel_id := ""
 var viewport := SubViewport.new()
 var content
 var inspector_content := true
+var html_surface := ""
 var manager
 var last_pointer := Vector2(-1000, -1000)
 var html_texture: Texture2D
@@ -22,12 +24,20 @@ func setup(controller, id: String) -> void:
 	inspector_content = object.get("inspector") != null
 	if object.get("resources") != null:
 		content = RESOURCES_VIEW.new()
+		html_surface = ""
 	elif object.get("script_editor") != null:
 		content = SCRIPT_EDITOR_VIEW.new()
+		html_surface = "script_editor"
+	elif object.get("workspace") != null:
+		content = WORKSPACE_VIEW.new()
+		html_surface = ""
+		inspector_content = false
 	elif object.get("creation") != null:
 		content = CREATION_VIEW.new()
+		html_surface = ""
 	else:
 		content = INSPECTOR_VIEW.new()
+		html_surface = "inspector"
 	var quad := QuadMesh.new()
 	quad.size = Vector2(1.2, 1.6)
 	mesh = quad
@@ -60,13 +70,20 @@ func setup(controller, id: String) -> void:
 
 func refresh(object: Dictionary) -> void:
 	var size := Vector2i(int(object.panel.size[0]), int(object.panel.size[1]))
+	var board := Vector2(1.6 * float(size.x) / float(size.y), 1.6)
 	if is_instance_valid(viewport) and viewport.size != size:
 		viewport.size = size
-		mesh.size = Vector2(1.6 * float(size.x) / float(size.y), 1.6)
+	if mesh is QuadMesh and mesh.size != board:
+		mesh.size = board
+	# Keep the local pick box aligned with the drawn board (snapshot collider may lag a frame).
+	if has_node("PickBody/Collider"):
+		var collision: CollisionShape3D = get_node("PickBody/Collider")
+		if collision.shape is BoxShape3D:
+			collision.shape.size = Vector3(board.x, board.y, 0.05)
 	content.refresh(object)
 	if viewport_hosted: return
-	if inspector_content and manager.app.html_ui != null and manager.app.html_ui.active:
-		# Prefer the HTML paper board immediately so the old dark Control theme never flashes.
+	if not html_surface.is_empty() and manager.app.html_ui != null and manager.app.html_ui.active:
+		# Prefer the HTML paper board immediately so the old Control theme never flashes.
 		using_html = true
 		content.visible = false
 		viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
@@ -75,9 +92,15 @@ func refresh(object: Dictionary) -> void:
 		else:
 			material_override.albedo_texture = null
 			material_override.albedo_color = Color("fffdf9")
+	elif using_html and (manager.app.html_ui == null or not manager.app.html_ui.active):
+		using_html = false
+		content.visible = true
+		viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+		material_override.albedo_color = Color(1, 1, 1, 1)
+		material_override.albedo_texture = viewport.get_texture()
 
 func apply_html_texture(texture: Texture2D) -> void:
-	if not inspector_content or texture == null: return
+	if html_surface.is_empty() or texture == null: return
 	html_texture = texture
 	using_html = true
 	material_override.albedo_color = Color(1, 1, 1, 1)
@@ -96,6 +119,9 @@ func canvas_point(global_point: Vector3) -> Vector2:
 
 func forward_pointer(event: InputEventMouse, point: Vector2) -> void:
 	if using_html and manager.app.html_ui != null and manager.app.html_ui.active:
+		if html_surface == "script_editor" and event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			if not manager.carried_reference.is_empty():
+				manager.app.html_ui.offer_carried_reference(panel_id)
 		manager.app.html_ui.panel_pointer(panel_id, point, event)
 		last_pointer = point
 		return

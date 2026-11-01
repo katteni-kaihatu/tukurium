@@ -40,7 +40,8 @@ func run() -> void:
 	if not await until(func(): return scene.editable and not scene.current.is_empty(),"Scene not ready"): quit(1); return
 	scene.hud.set_edit_mode(true)
 	var target: String = scene.selected_id
-	for _i in 2: scene.world_panels.open_script_editor(target)
+	# Keep boards in world space; automatic 2D pin is for dock/menu UX only.
+	for _i in 2: scene.world_panels.open_script_editor(target, "", false)
 	if not await until(func(): return scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null).size() == 2,"Shared Script Editors missing"): quit(1); return
 	var panels: Array = scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null)
 	if not await until(func(): return panels[0].content.script_mount.visible and panels[1].content.script_mount.visible,"Script Editor mounts did not open"): quit(1); return
@@ -118,7 +119,7 @@ func run() -> void:
 	if not await until(func(): return scene.objects[target].get("scripts",[]).size() == 1 and a.editor.pending_id.is_empty() and a.editor.is_graph(),"FPS node graph creation failed"): quit(1); return
 	if not a.document.is_empty() or not a.editor.graph.visible:
 		push_error("Graph editor incorrectly uses the Lua text draft"); quit(1); return
-	scene.world_panels.open_script_editor(target)
+	scene.world_panels.open_script_editor(target, "", false)
 	if not await until(func(): return scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null).size() == 2,"Second Script Editor missing"): quit(1); return
 	var other = scene.world_panels.panels.values().filter(func(p): return p.panel_id != panel.panel_id and p.content.get("script_view") != null)[0]
 	var graph_peer = other.content.script_view

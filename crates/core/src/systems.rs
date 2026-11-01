@@ -272,6 +272,7 @@ pub(crate) fn validate_commands(
                         StructuralOperation::CreateCreationPanel {position,rotation} => Ok(Mutation::Insert(Box::new(crate::panels::create_creation(&snapshot.0,position,rotation)?))),
                         StructuralOperation::CreateResourcesPanel {target,position,rotation} => Ok(Mutation::Insert(Box::new(crate::panels::create_resources(&snapshot.0,target,position,rotation)?))),
                         StructuralOperation::CreateScriptEditorPanel {target,script_id,position,rotation} => Ok(Mutation::Insert(Box::new(crate::panels::create_script_editor(&snapshot.0,target,script_id,position,rotation)?))),
+                        StructuralOperation::CreateWorkspacePanel {position,rotation} => Ok(Mutation::Insert(Box::new(crate::panels::create_workspace(&snapshot.0,position,rotation)?))),
                         StructuralOperation::Create => {
                             let count = slots.iter().count();
                             if count >= MAX_OBJECTS { return Err("Object limit reached (128)".into()); }
@@ -579,6 +580,7 @@ pub(crate) fn extract_snapshot(
     planar_motions: Query<&PlanarMotion>,
     resources_views: Query<&ResourcesView>,
     script_editor_views: Query<&ScriptEditorView>,
+    workspace_views: Query<&WorkspaceView>,
     index: Res<EntityIndex>,
     revision: Res<WorldRevision>,
     changes: Res<ChangeSet>,
@@ -626,6 +628,7 @@ pub(crate) fn extract_snapshot(
             creation: creation.map(|c| c.0.clone()),
             resources: resources_views.get(entity).ok().map(|r| r.0.clone()),
             script_editor: script_editor_views.get(entity).ok().map(|s| s.0.clone()),
+            workspace: workspace_views.get(entity).ok().map(|w| w.0.clone()),
             world_text: world_text.map(|t| t.0.clone()),
             mirror: mirror.map(|m| m.0),
             camera: camera.map(|c| c.0),

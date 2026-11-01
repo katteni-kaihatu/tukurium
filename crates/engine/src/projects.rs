@@ -35,7 +35,7 @@ pub fn projects_root(data_root: &Path) -> PathBuf {
     data_root.join("projects")
 }
 
-pub fn project_dir(data_root: &Path, slug: &str) -> PathBuf {
+pub(crate) fn project_dir(data_root: &Path, slug: &str) -> PathBuf {
     projects_root(data_root).join(slug)
 }
 
@@ -43,7 +43,7 @@ pub fn world_path(data_root: &Path, slug: &str) -> PathBuf {
     project_dir(data_root, slug).join("world.json")
 }
 
-pub fn meta_path(data_root: &Path, slug: &str) -> PathBuf {
+pub(crate) fn meta_path(data_root: &Path, slug: &str) -> PathBuf {
     project_dir(data_root, slug).join("project.json")
 }
 
@@ -75,7 +75,7 @@ fn now() -> String {
     format!("{secs}")
 }
 
-fn read_meta(path: &Path) -> Result<ProjectMeta, String> {
+pub(crate) fn read_meta(path: &Path) -> Result<ProjectMeta, String> {
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     let v: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     Ok(ProjectMeta {
@@ -85,6 +85,18 @@ fn read_meta(path: &Path) -> Result<ProjectMeta, String> {
         created_at: v["created_at"].as_str().unwrap_or("").into(),
         updated_at: v["updated_at"].as_str().unwrap_or("").into(),
     })
+}
+
+pub(crate) fn read_display_name(data_root: &Path, slug: &str) -> Option<String> {
+    read_meta(&meta_path(data_root, slug))
+        .ok()
+        .map(|m| {
+            if m.display_name.trim().is_empty() {
+                m.slug
+            } else {
+                m.display_name
+            }
+        })
 }
 
 fn write_meta(data_root: &Path, meta: &ProjectMeta) -> Result<(), String> {
@@ -223,6 +235,9 @@ pub fn save_world(data_root: &Path, slug: &str, snapshot: &Snapshot) -> Result<(
 
 /// Handle local project_* service actions. Returns Ok(Some) when handled.
 pub fn handle(data_root: &Path, action: &str, body: &Value) -> Result<Option<Value>, String> {
+    if let Some(v) = crate::project_resources::handle(data_root, action, body)? {
+        return Ok(Some(v));
+    }
     Ok(Some(match action {
         "projects" => {
             let query = body["query"].as_str().unwrap_or("");

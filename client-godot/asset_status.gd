@@ -1,6 +1,7 @@
 extends Node
 ## Local delivery/rendering state. Never saved in the shared world.
 signal changed(key: String, state: Dictionary)
+const DesignChrome = preload("res://design_chrome.gd")
 var app: Node
 var entries: Dictionary = {}
 var badges: Dictionary = {}
@@ -32,13 +33,10 @@ func setup(application: Node) -> void:
 	panel.offset_top = 112
 	panel.offset_bottom = 180
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("15212eef")
-	style.set_corner_radius_all(8)
-	style.set_content_margin_all(12)
-	panel.add_theme_stylebox_override("panel",style)
+	panel.add_theme_stylebox_override("panel", DesignChrome.panel(DesignChrome.PAPER_GLASS, 12, 12, true))
 	panel.add_child(rows)
 	heading.add_theme_font_size_override("font_size",12)
+	heading.add_theme_color_override("font_color", DesignChrome.INK)
 	heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rows.add_child(heading)
 	rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -190,7 +188,7 @@ func refresh_badges() -> void:
 		badge.text = object_name.left(32)+"\n"+tr(str(TITLES.get(state.phase,state.phase)))
 		if int(state.total)>0:
 			badge.text += "\n%d%% · %s / %s" % [mini(100,int(100.0*state.completed/state.total)),String.humanize_size(state.completed),String.humanize_size(state.total)]
-		badge.modulate = Color("ffaaa0") if state.phase == "error" else Color("a2ece7")
+		badge.modulate = DesignChrome.DANGER if state.phase == "error" else DesignChrome.PLUM
 		var height := 1.0
 		if object.get("collider") is Dictionary: height = float(object.collider.half_extents[1])*absf(float(object.world_scale[1]))
 		badge.global_position = node.global_position+Vector3.UP*(height+0.2)

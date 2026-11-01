@@ -2,6 +2,7 @@ extends Control
 ## Pointer-operated local menu. It never creates replicated UI state.
 signal chosen(index: int)
 signal cancelled
+const DesignChrome = preload("res://design_chrome.gd")
 const INNER := 72.0
 const OUTER := 178.0
 const LABELS := ["Inspector 2D", "Inspector 3D", "新規作成…", "Resources"]
@@ -53,7 +54,8 @@ func centered_text(value: String, at: Vector2, font_size: int, color: Color) -> 
 
 func _draw() -> void:
 	if font == null: return
-	draw_rect(Rect2(Vector2.ZERO,size),Color(0.03,0.05,0.07,0.22))
+	# Soft warm veil — paper workspace, not teal night.
+	draw_rect(Rect2(Vector2.ZERO,size), Color(38 / 255.0, 38 / 255.0, 46 / 255.0, 0.18))
 	for index in 4:
 		var angle := -PI*0.5+index*PI*0.5
 		var start := angle-PI*0.25+0.025
@@ -62,11 +64,12 @@ func _draw() -> void:
 		for step in 33: points.append(center+Vector2.from_angle(lerpf(start,end,float(step)/32))*OUTER)
 		for step in 33: points.append(center+Vector2.from_angle(lerpf(end,start,float(step)/32))*INNER)
 		var active := index == hovered and enabled
-		draw_colored_polygon(points,Color("264e54") if active else Color("14222ff5"))
-		draw_polyline(points+PackedVector2Array([points[0]]),Color("77dbce") if active else Color("39505c"),1.5,true)
+		draw_colored_polygon(points, DesignChrome.PALE if active else Color("fffdf9f2"))
+		draw_polyline(points+PackedVector2Array([points[0]]), DesignChrome.PLUM if active else DesignChrome.LINE, 1.8 if active else 1.4, true)
 		var position := center+Vector2.from_angle(angle)*125
-		centered_text(ICONS[index],position+Vector2(0,-4),29,Color("8ce7db") if enabled else Color("69808c"))
-		centered_text(tr(LABELS[index]),position+Vector2(0,23),15,Color("edf5f8") if enabled else Color("69808c"))
-	draw_circle(center,INNER-5,Color("101b25"))
-	centered_text("tukurium",center+Vector2(0,-8),17,Color("90ddd4"))
-	centered_text(target_name.left(15),center+Vector2(0,15),12,Color("b1c1ca"))
+		centered_text(ICONS[index], position+Vector2(0,-4), 29, DesignChrome.PLUM if enabled else DesignChrome.MUTED)
+		centered_text(tr(LABELS[index]), position+Vector2(0,23), 15, DesignChrome.INK if enabled else DesignChrome.MUTED)
+	draw_circle(center, INNER-5, DesignChrome.PAPER)
+	draw_arc(center, INNER-5, 0, TAU, 64, DesignChrome.LINE, 1.4, true)
+	centered_text("tukurium", center+Vector2(0,-8), 17, DesignChrome.PLUM)
+	centered_text(target_name.left(15), center+Vector2(0,15), 12, DesignChrome.MUTED)

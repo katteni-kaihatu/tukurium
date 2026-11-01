@@ -1,4 +1,5 @@
-//! Draws client-ui over the Godot window and captures a fixed panel page for 3D boards.
+//! Draws client-ui over the Godot window and captures fixed panel pages for 3D boards.
+//! Inspector and Script Editor each own an off-screen WebView so surfaces never fight.
 
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -39,6 +40,12 @@ struct HitRect {
     w: i32,
     h: i32,
     r: i32,
+}
+
+#[derive(Clone)]
+struct CaptureJob {
+    surface: String,
+    id: String,
 }
 
 struct ParentWindow {
@@ -106,14 +113,15 @@ fn main() {
     let brand_dir = ui_dir.parent().unwrap_or(Path::new("")).join("client-godot").join("assets").join("branding");
     let outgoing: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
     let regions: Arc<Mutex<Option<Vec<HitRect>>>> = Arc::new(Mutex::new(None));
-    let capture_requested: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+    let capture_queue: Arc<Mutex<VecDeque<CaptureJob>>> = Arc::new(Mutex::new(VecDeque::new()));
     let capturing: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
     let focus_parent: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
     let focus_pulses: Arc<Mutex<VecDeque<Instant>>> = Arc::new(Mutex::new(VecDeque::new()));
-    let panel_id: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let inspector_id: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let script_id: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     let ipc_out = outgoing.clone();
     let ipc_regions = regions.clone();
-    let ipc_capture = capture_requested.clone();
+    let ipc_capture = capture_queue.clone();
     let ipc_focus = focus_parent.clone();
     let ipc_pulses = focus_pulses.clone();
     let overlay = match WebViewBuilder::new()
@@ -127,6 +135,7 @@ fn main() {
                 &ipc_capture,
                 &ipc_focus,
                 &ipc_pulses,
+                "overlay",
             )
         })
         .with_custom_protocol("tukurium".into(), {
@@ -143,8 +152,6 @@ fn main() {
             std::process::exit(1);
         }
     };
-    // Clip every new child under Godot. WebView2 can create more than one HWND; any
-    // unclipped sibling steals the whole client area and freezes world input.
     let mut overlay_children = new_children(parent_hwnd, &before);
     if overlay_children.is_empty() {
         let seek_until = Instant::now() + Duration::from_secs(2);
@@ -156,63 +163,52 @@ fn main() {
     }
     let overlay_child = overlay_children.first().copied().unwrap_or(HWND(std::ptr::null_mut()));
 
-    // Keep the off-screen panel page off Godot's HWND tree so it can never cover input.
-    let panel_host_hwnd = match create_panel_host() {
+    let inspector_host_hwnd = match create_panel_host(w!("tukurium_html_panel_host"), w!("tukurium-panel")) {
         Ok(hwnd) => hwnd,
         Err(err) => {
-            eprintln!("html-host could not create panel host: {err}");
+            eprintln!("html-host could not create inspector panel host: {err}");
             std::process::exit(1);
         }
     };
-    let panel_host = ParentWindow {
-        hwnd: NonZeroIsize::new(panel_host_hwnd.0 as isize).expect("panel host"),
+    let script_host_hwnd = match create_panel_host(w!("tukurium_html_script_host"), w!("tukurium-script-panel")) {
+        Ok(hwnd) => hwnd,
+        Err(err) => {
+            eprintln!("html-host could not create script panel host: {err}");
+            std::process::exit(1);
+        }
+    };
+    let inspector_host = ParentWindow {
+        hwnd: NonZeroIsize::new(inspector_host_hwnd.0 as isize).expect("inspector host"),
         hinstance: NonZeroIsize::new(unsafe { GetModuleHandleW(None).map(|h| h.0 as isize).unwrap_or(0) }),
     };
-    let panel_ipc_out = outgoing.clone();
-    let panel_capture = capture_requested.clone();
-    let panel_focus = focus_parent.clone();
-    let panel_pulses = focus_pulses.clone();
-    let panel = match WebViewBuilder::new()
-        .with_transparent(false)
-        .with_bounds(Rect {
-            position: PhysicalPosition::new(0, 0).into(),
-            size: PhysicalSize::new(PANEL_W, PANEL_H).into(),
-        })
-        .with_ipc_handler(move |request| {
-            accept_ipc(
-                request.body(),
-                &panel_ipc_out,
-                &Mutex::new(None),
-                &panel_capture,
-                &panel_focus,
-                &panel_pulses,
-            )
-        })
-        .with_custom_protocol("tukurium".into(), {
-            let ui_dir = ui_dir.clone();
-            let brand_dir = brand_dir.clone();
-            move |_id, request| serve(&ui_dir, &brand_dir, request.uri().path())
-        })
-        .with_url("http://tukurium.localhost/panel.html")
-        .build_as_child(&panel_host)
-    {
-        Ok(webview) => webview,
-        Err(err) => {
-            eprintln!("html-host could not open panel WebView2: {err}");
-            std::process::exit(1);
-        }
+    let script_host = ParentWindow {
+        hwnd: NonZeroIsize::new(script_host_hwnd.0 as isize).expect("script host"),
+        hinstance: NonZeroIsize::new(unsafe { GetModuleHandleW(None).map(|h| h.0 as isize).unwrap_or(0) }),
     };
-    unsafe {
-        let _ = SetWindowPos(
-            panel_host_hwnd,
-            None,
-            -32000,
-            -32000,
-            PANEL_W,
-            PANEL_H,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOZORDER,
-        );
-    }
+    let panel = build_panel_webview(
+        &inspector_host,
+        &ui_dir,
+        &brand_dir,
+        outgoing.clone(),
+        capture_queue.clone(),
+        focus_parent.clone(),
+        focus_pulses.clone(),
+        "inspector",
+        "http://tukurium.localhost/panel.html",
+    );
+    let script_panel = build_panel_webview(
+        &script_host,
+        &ui_dir,
+        &brand_dir,
+        outgoing.clone(),
+        capture_queue.clone(),
+        focus_parent.clone(),
+        focus_pulses.clone(),
+        "script_editor",
+        "http://tukurium.localhost/script-panel.html",
+    );
+    place_offscreen(inspector_host_hwnd);
+    place_offscreen(script_host_hwnd);
     schedule_focus(&focus_parent, &focus_pulses);
     let mut child = overlay_child;
     let mut inbox = Vec::<u8>::new();
@@ -233,7 +229,6 @@ fn main() {
                 break;
             }
         } else {
-            // New WebView2 helper HWNDs can appear later; keep them clipped too.
             let latest = new_children(parent_hwnd, &before);
             if latest.len() > overlay_children.len() {
                 overlay_children = latest;
@@ -279,17 +274,43 @@ fn main() {
                     let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
                     match value.get("type").and_then(|kind| kind.as_str()) {
                         Some("panel_state") => {
+                            let surface = value
+                                .get("surface")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or(if value.get("scriptEditor").is_some() { "script_editor" } else { "inspector" });
                             if let Some(id) = value.get("id").and_then(|id| id.as_str()) {
-                                *panel_id.lock().unwrap() = id.to_string();
+                                if surface == "script_editor" {
+                                    *script_id.lock().unwrap() = id.to_string();
+                                } else {
+                                    *inspector_id.lock().unwrap() = id.to_string();
+                                }
                             }
                             let script = format!("window.tukurium&&window.tukurium.apply({line})");
-                            let _ = panel.evaluate_script(&script);
-                            *capture_requested.lock().unwrap() = true;
+                            if surface == "script_editor" {
+                                let _ = script_panel.evaluate_script(&script);
+                            } else {
+                                let _ = panel.evaluate_script(&script);
+                            }
+                            enqueue_capture(&capture_queue, surface, value.get("id").and_then(|id| id.as_str()).unwrap_or(""));
                         }
                         Some("panel_pointer") | Some("panel_key") => {
+                            let surface = value
+                                .get("surface")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("inspector");
                             let script = format!("window.tukurium&&window.tukurium.apply({line})");
-                            let _ = panel.evaluate_script(&script);
-                            *capture_requested.lock().unwrap() = true;
+                            if surface == "script_editor" {
+                                let _ = script_panel.evaluate_script(&script);
+                            } else {
+                                let _ = panel.evaluate_script(&script);
+                            }
+                            enqueue_capture(&capture_queue, surface, value.get("id").and_then(|id| id.as_str()).unwrap_or(""));
+                        }
+                        Some("script_document_state") | Some("script_graph_state") | Some("script_offer_ref") => {
+                            let script = format!("window.tukurium&&window.tukurium.apply({line})");
+                            let _ = script_panel.evaluate_script(&script);
+                            let _ = overlay.evaluate_script(&script);
+                            enqueue_capture(&capture_queue, "script_editor", script_id.lock().unwrap().clone());
                         }
                         Some("focus_parent") => {
                             schedule_focus(&focus_parent, &focus_pulses);
@@ -307,7 +328,6 @@ fn main() {
             *focus_parent.lock().unwrap() = false;
             let _ = unsafe { SetFocus(Some(parent_hwnd)) };
         }
-        // At most a few spaced pulses — never SetFocus every frame (that blocks window drag).
         let due = {
             let mut pulses = focus_pulses.lock().unwrap();
             if pulses.front().is_some_and(|at| Instant::now() >= *at) {
@@ -320,36 +340,50 @@ fn main() {
         if due {
             let _ = unsafe { SetFocus(Some(parent_hwnd)) };
         }
-        if *capture_requested.lock().unwrap() && !*capturing.lock().unwrap() {
-            *capture_requested.lock().unwrap() = false;
-            *capturing.lock().unwrap() = true;
-            let out = outgoing.clone();
-            let busy = capturing.clone();
-            let id = panel_id.lock().unwrap().clone();
-            let webview = panel.webview();
-            let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |hr, result| {
-                *busy.lock().unwrap() = false;
-                if hr.is_err() {
-                    return Ok(());
-                }
-                let text = result.to_string();
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                    if let Some(data) = value.get("data").and_then(|data| data.as_str()) {
-                        let message = serde_json::json!({
-                            "type": "panel_frame",
-                            "id": id,
-                            "width": PANEL_W,
-                            "height": PANEL_H,
-                            "png": data,
-                        });
-                        out.lock().unwrap().push_back(message.to_string());
+        if !*capturing.lock().unwrap() {
+            let job = capture_queue.lock().unwrap().pop_front();
+            if let Some(job) = job {
+                *capturing.lock().unwrap() = true;
+                let out = outgoing.clone();
+                let busy = capturing.clone();
+                let id = if job.id.is_empty() {
+                    if job.surface == "script_editor" {
+                        script_id.lock().unwrap().clone()
+                    } else {
+                        inspector_id.lock().unwrap().clone()
                     }
-                }
-                Ok(())
-            }));
-            let method = HSTRING::from("Page.captureScreenshot");
-            let params = HSTRING::from("{\"format\":\"png\",\"fromSurface\":true}");
-            let _ = unsafe { webview.CallDevToolsProtocolMethod(&method, &params, &handler) };
+                } else {
+                    job.id.clone()
+                };
+                let webview = if job.surface == "script_editor" {
+                    script_panel.webview()
+                } else {
+                    panel.webview()
+                };
+                let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |hr, result| {
+                    *busy.lock().unwrap() = false;
+                    if hr.is_err() {
+                        return Ok(());
+                    }
+                    let text = result.to_string();
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if let Some(data) = value.get("data").and_then(|data| data.as_str()) {
+                            let message = serde_json::json!({
+                                "type": "panel_frame",
+                                "id": id,
+                                "width": PANEL_W,
+                                "height": PANEL_H,
+                                "png": data,
+                            });
+                            out.lock().unwrap().push_back(message.to_string());
+                        }
+                    }
+                    Ok(())
+                }));
+                let method = HSTRING::from("Page.captureScreenshot");
+                let params = HSTRING::from("{\"format\":\"png\",\"fromSurface\":true}");
+                let _ = unsafe { webview.CallDevToolsProtocolMethod(&method, &params, &handler) };
+            }
         }
         let messages: Vec<String> = outgoing.lock().unwrap().drain(..).collect();
         if write_lines(&mut stream, &messages).is_err() {
@@ -359,7 +393,82 @@ fn main() {
             std::thread::sleep(Duration::from_millis(4));
         }
     }
-    let _ = unsafe { DestroyWindow(panel_host_hwnd) };
+    let _ = unsafe { DestroyWindow(inspector_host_hwnd) };
+    let _ = unsafe { DestroyWindow(script_host_hwnd) };
+}
+
+fn build_panel_webview(
+    host: &ParentWindow,
+    ui_dir: &Path,
+    brand_dir: &Path,
+    outgoing: Arc<Mutex<VecDeque<String>>>,
+    capture_queue: Arc<Mutex<VecDeque<CaptureJob>>>,
+    focus_parent: Arc<Mutex<bool>>,
+    focus_pulses: Arc<Mutex<VecDeque<Instant>>>,
+    surface: &'static str,
+    url: &str,
+) -> wry::WebView {
+    let panel_ipc_out = outgoing;
+    let panel_capture = capture_queue;
+    let panel_focus = focus_parent;
+    let panel_pulses = focus_pulses;
+    match WebViewBuilder::new()
+        .with_transparent(false)
+        .with_bounds(Rect {
+            position: PhysicalPosition::new(0, 0).into(),
+            size: PhysicalSize::new(PANEL_W, PANEL_H).into(),
+        })
+        .with_ipc_handler(move |request| {
+            accept_ipc(
+                request.body(),
+                &panel_ipc_out,
+                &Mutex::new(None),
+                &panel_capture,
+                &panel_focus,
+                &panel_pulses,
+                surface,
+            )
+        })
+        .with_custom_protocol("tukurium".into(), {
+            let ui_dir = ui_dir.to_path_buf();
+            let brand_dir = brand_dir.to_path_buf();
+            move |_id, request| serve(&ui_dir, &brand_dir, request.uri().path())
+        })
+        .with_url(url)
+        .build_as_child(host)
+    {
+        Ok(webview) => webview,
+        Err(err) => {
+            eprintln!("html-host could not open panel WebView2 ({surface}): {err}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn place_offscreen(hwnd: HWND) {
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            -32000,
+            -32000,
+            PANEL_W,
+            PANEL_H,
+            SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOZORDER,
+        );
+    }
+}
+
+fn enqueue_capture(queue: &Mutex<VecDeque<CaptureJob>>, surface: &str, id: impl Into<String>) {
+    let id = id.into();
+    let mut q = queue.lock().unwrap();
+    if q.iter().any(|job| job.surface == surface && job.id == id) {
+        return;
+    }
+    q.push_back(CaptureJob {
+        surface: surface.to_string(),
+        id,
+    });
 }
 
 fn schedule_focus(flag: &Mutex<bool>, pulses: &Mutex<VecDeque<Instant>>) {
@@ -373,9 +482,8 @@ fn schedule_focus(flag: &Mutex<bool>, pulses: &Mutex<VecDeque<Instant>>) {
     queue.push_back(now + Duration::from_millis(140));
 }
 
-fn create_panel_host() -> windows::core::Result<HWND> {
+fn create_panel_host(class_name: windows::core::PCWSTR, title: windows::core::PCWSTR) -> windows::core::Result<HWND> {
     let module = unsafe { GetModuleHandleW(None)? };
-    let class_name = w!("tukurium_html_panel_host");
     let class = WNDCLASSEXW {
         cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
         style: CS_HREDRAW | CS_VREDRAW,
@@ -389,7 +497,7 @@ fn create_panel_host() -> windows::core::Result<HWND> {
         CreateWindowExW(
             WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
-            w!("tukurium-panel"),
+            title,
             WS_POPUP,
             -32000,
             -32000,
@@ -429,9 +537,10 @@ fn accept_ipc(
     body: &str,
     outgoing: &Mutex<VecDeque<String>>,
     regions: &Mutex<Option<Vec<HitRect>>>,
-    capture: &Mutex<bool>,
+    capture: &Mutex<VecDeque<CaptureJob>>,
     focus: &Mutex<bool>,
     pulses: &Mutex<VecDeque<Instant>>,
+    default_surface: &str,
 ) {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else { return };
     match value.get("type").and_then(|kind| kind.as_str()) {
@@ -441,7 +550,11 @@ fn accept_ipc(
             }
         }
         Some("panel_capture_request") => {
-            *capture.lock().unwrap() = true;
+            let surface = value
+                .get("surface")
+                .and_then(|s| s.as_str())
+                .unwrap_or(default_surface);
+            enqueue_capture(capture, surface, "");
         }
         Some("focus_parent") => {
             schedule_focus(focus, pulses);

@@ -11,6 +11,7 @@ mod media_clock;
 mod persistence;
 mod previews;
 mod projects;
+mod project_resources;
 mod state_rules;
 use kokoverse_core::{WorldModel, replication::REGISTRY};
 use kokoverse_protocol::{

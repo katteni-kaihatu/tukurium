@@ -8,7 +8,7 @@
 ## 作業前に関連する指針を読む
 
 - 最初に [guidelines/README.md](guidelines/README.md) を読む。
-- UIを追加・変更するときは [表示先の選び方](guidelines/ui-surfaces.md) を読む。
+- UIを追加・変更するときは [表示先の選び方](guidelines/ui-surfaces.md) を読み、Godot UI 作業ではプロジェクト Skill [tukurium-godot-ui](.cursor/skills/tukurium-godot-ui/SKILL.md) に従う。
 - ビルド・配布するときは [Windows配布版のビルド手順](docs/windows-build.md) を読み、前回配布した機能と作業ツリーを確認する。
 - 3Dパネルや入力を扱うときは [3Dパネルの実装指針](guidelines/world-space-panels.md) と [不具合から得た知見](guidelines/lessons-learned.md) を読む。
 - 通信・ECS・保存の詳細は [docs/runtime.md](docs/runtime.md)、操作の現状は [docs/inspector-controls.md](docs/inspector-controls.md) を参照する。

@@ -1,7 +1,75 @@
 # 不具合から得た知見を次の実装へ引き継ぐ
 
-確認日：2026-10-24。以下は再現・修正を確認した記録。
+確認日：2026-11-01。以下は再現・修正を確認した記録。
 現在の操作規則は [3Dパネルの実装指針](world-space-panels.md) を参照する。
+
+## オフスクリーン Script Editor に `.window` を付けない
+
+`theme.css` の `.window` はオーバーレイ用の固定サイズ（640×〜640）を持つ。板用 `script-panel.html` の殻にこれを付けると、1120×960 のキャプチャ面の一部にしか UI が載らず、見た目の板と操作座標がずれる。殻は `.script-shell` / `.panel-shell` のみにし、ポインターは inspector と同様に `elementFromPoint` で合成する。
+
+- コード：[script-editor.js](../client-ui/script-editor.js)、[script-panel.html](../client-ui/script-panel.html)。確認日：2026-11-01。
+
+## HTML インスペクタの × はピン切替と同じコマンドにしない
+
+`inspector.js` でピンと閉じるがどちらも `command: inspector` だと、× はピンの付け外しにしかならずパネルが消えない。閉じるは `close_inspector` を送り、Godot 側で `close_panel` する。ピン用コマンドと削除を共用しない。
+
+- コード：[inspector.js](../client-ui/inspector.js)、[html_ui.gd](../client-godot/html_ui.gd)。確認日：2026-11-01。
+
+## Workspace も pinnable な WorldPanel
+
+ワークスペース帯を個人 CanvasLayer のままにすると、移動・ピン（2D/3D）がインスペクタと揃わない。`WorkspaceView`＋`create_workspace_panel` で共有板にし、`pinnable` に `workspace` を含める。中の Edit/Play は局所のまま。行コンテナのクリック透過は内容側でも維持する。
+
+- コード：[workspace_view.gd](../client-godot/workspace_view.gd)、[world_panels.gd](../client-godot/world_panels.gd)、[panels.rs](../crates/core/src/panels.rs)。確認日：2026-11-01。
+
+## HTML Script Editor のプレゼンス心拍は実キャレットを送る
+
+`html_script_session` の 1.5 秒心拍が `set_cursor(draft_text.length())` だと、同期が落ち着いた直後に共有カーソルが常にファイル末尾へ飛ぶ。心拍は直近の `script_cursor` オフセットを再送し、編集フライト中もオフセットは記憶する。表示側は自分の `client_id` のマークを描かない（Godot `script_carets` と同じ）。
+
+- コード：[html_script_session.gd](../client-godot/html_script_session.gd)、[script-editor.js](../client-ui/script-editor.js)。確認日：2026-11-01。
+
+## 個人メニューも紙調（DesignChrome）に揃える
+
+ドック・リング・設定・参加者／チャット・新規作成・カメラ・ホーム／ライブラリ・アセット進捗が暗いティールのままだと、Resources／HTML インスペクタの紙＋プラムとトーンが割れる。色と StyleBox は `design_chrome.gd` のトークン（`#fffdf9` / `#603d56` / `#dcd5c8`）に寄せ、HTML `theme.css` の `.glass` と同じ語彙にする。共有は `const DesignChrome = preload("res://design_chrome.gd")` で取り、`class_name` には頼らない（エディタ未登録やヘッドレスで名前解決に失敗する）。
+
+- コード：[design_chrome.gd](../client-godot/design_chrome.gd)、[world_hud.gd](../client-godot/world_hud.gd)、[ring_menu.gd](../client-godot/ring_menu.gd)、[service_panel.gd](../client-godot/service_panel.gd)、[asset_status.gd](../client-godot/asset_status.gd)。確認日：2026-11-01。
+
+## Godot ピン枠と内容の角丸を二重にしない
+
+2D ピン用の `panel_pin_overlay` と Resources 等内容の両方に 18px 枠を付けると、インスペクタ HTML の一段ガラスと違って縁が二重になる。枠・影・角丸は内容側だけにし、ピン枠は透明なホストにする。ピン中は SubViewport を `transparent_bg` にして角のクリア色が抜けないようにする。ドック／リングからの Resources・Script Editor は作成後に自動ピン、スモークなどボード前提の呼び出しは `pin=false`。自動ピン待ちは数秒で破棄する。
+
+- コード：[panel_pin_overlay.gd](../client-godot/panel_pin_overlay.gd)、[world_panels.gd](../client-godot/world_panels.gd)、[resources_view.gd](../client-godot/resources_view.gd)。確認日：2026-11-01。
+
+## StyleBox に `set_content_margin_individual` は無い
+
+Godot 4 の `StyleBoxFlat` にあるのは `set_content_margin` / `set_content_margin_all` と `content_margin_*` プロパティだけ。存在しない `set_content_margin_individual` を呼ぶと、Resources の検索欄や I/L/D・閉じる・New メニュー行など紙調 StyleBox を当てる処理が途中で落ち、既定の暗いボタン／入力欄が残る（`+ New` 本体だけ自前 StyleBox で紫のまま、など片側だけ正しい症状）。紙UIでは余白設定の有無を頭出し Godot で確認してから配る。
+
+- コード：[resources_view.gd](../client-godot/resources_view.gd) の `_paper_box`。確認日：2026-11-01。
+
+## Godot ピン枠に見出しを重ねない
+
+Resources など SubViewport 内容がタイトル・ピン・閉じるを持つパネルを `panel_pin_overlay` で包むと、枠側の薄い見出しと内容側の見出しが二重になる。HTML インスペクタは内容の見出しだけが窓のクロムになる。Godot ピン枠は紙の外枠だけにし、ドラッグは内容見出しから `begin_pin_drag` で枠へ渡す。
+
+- コード：[panel_pin_overlay.gd](../client-godot/panel_pin_overlay.gd)、[resources_view.gd](../client-godot/resources_view.gd)。確認日：2026-11-01。
+
+## WorldPanel 内のドロップダウンは親の外へ出さず、ルートへ載せる
+
+Resources の `+ New` メニューをツールバーの小さな `Control` 子として下にはみ出して描くと、見た目は出てもクリックは下の一覧・スクロールが奪う。SubViewport 内でも当たり判定は各 Control の矩形と兄弟の重なり順に従う。ポップアップはパネルルート直下のオーバーレイ（スクリム＋メニュー）に載せ、紙調の StyleBox を `normal/hover/pressed` に明示する（未設定だと Godot 既定の暗いボタン背景になる）。
+
+さらに、ルートが `PanelContainer` のとき直下の子はすべて全面に伸ばされる。小さな New メニューを `PanelContainer` 直下へ置くと全面カードになるので、中身は 1 つの `Control` ホストにまとめ、メニューはそのホスト上の自由配置にする。アイコン格子は `Button` 内に `FULL_RECT` 子を置くとセル幅が潰れて重なることがある。カードは `PanelContainer`＋`VBox` を使い、クリックは `gui_input` で受ける。
+
+- コード：[resources_view.gd](../client-godot/resources_view.gd)。確認日：2026-11-01。
+
+## Script Editor の選択 ID は `script_editor_script_id`
+
+共有 Script Editor パネルの選択書き込みを `inspector_script_id` にすると、インスペクタ用フィールドへ誤って書き込み、Script Editor 側の選択が共有されない。パネル種別ごとの Component 欄は `script_editor_script_id` / `script_editor_target`。HTML 経路でも同じフィールド名を使う。
+
+- コード：[shared_script_view.gd](../client-godot/shared_script_view.gd)、[html_ui.gd](../client-godot/html_ui.gd)。確認日：2026-11-01。
+
+## Script Editor の下書きは毎キーで panel_state を押し戻さない
+
+HTML Script Editor で文字を入れるとすぐ元の文に戻る症状は、`script_draft` のたびに `push_script_state` していたことが原因だった。板／オーバーレイへ届く `panel_state` が CodeMirror を共有ソースで塗り直す。下書きは Godot 側の `script_drafts` / session に静かに保持し、共同編集の flush と Apply だけが確定経路。クライアントは `dirty` のあいだローカルバッファを優先し、`scriptId` が変わったときだけバッファを捨てる。Luau と Node graph は同じ ScriptComponent の別表現（source 先頭が `@tukurium-graph-v1` ならグラフ）。`+ Node graph` 後は付いた Script を選択してグラフ面を開く。
+
+- コード：[html_ui.gd](../client-godot/html_ui.gd) の `script_draft` / `script_add`、[script-editor.js](../client-ui/script-editor.js)。確認日：2026-11-01。
 
 ## `cfg!` では Unix 専用の API を Windows ビルドから外せない
 
@@ -480,9 +548,12 @@ Component スキーマは catalog メッセージで接続時に一度だけ届�
 
 `world_panels.gd` の `var html := app.html_ui != null and app.html_ui.active` は、`app` が無型なので右辺が Variant になり、Godot 4 は型推論を解析エラーにする。依存先の `html_ui.gd` も同じ理由で落ち、`main.gd` ごとコンパイルに失敗する。スクリプトが読まれないと `_ready` の途中でカメラ追加前に止まり、ウィンドウは環境色の藍色だけになる。
 
-無型のプロパティや、それと `and` / `or` で結んだ式には `:=` を使わない。`var html: bool = ...` のように型を書く。依存スクリプトの解析エラーは、本体の実行時エラーより先にログの先頭を見る。
+同様に `asset_importer.gd` の `var catalog := job.get("purpose","") == "catalog"` も、`Dictionary.get` が Variant を返すため `:=` の推論に失敗する。結果は同じ藍色画面。
+
+無型のプロパティ、`Dictionary.get` の戻り値、それらと `and` / `or` / `==` で結んだ式には `:=` を使わない。`var catalog: bool = str(job.get("purpose","")) == "catalog"` のように型を書く。依存スクリプトの解析エラーは、本体の実行時エラーより先にログの先頭を見る。
 
 - 再現・確認：解析エラーのある状態でウィンドウ起動するとカメラが無く藍色だけになる。型を明示したあと、同じ起動で床とグリッドが見えることを確認する。
+- 確認日：2026-11-01。関連：`asset_importer.gd`（catalog import）。
 - コード：[world_panels.gd](../client-godot/world_panels.gd) の `sync_pinned_presentation()`、[html_ui.gd](../client-godot/html_ui.gd) の `pinned_view()`。確認日：2026-10-31。
 
 ## 道具の板を物体一覧に出すと、掴めることと物体であることが混ざる
