@@ -23,3 +23,9 @@ window/stretch/mode="disabled"
 renderer/rendering_method="gl_compatibility"
 anti_aliasing/quality/msaa_3d=2
 environment/defaults/default_clear_color=Color(0.07, 0.10, 0.14, 1)
+
+[xr]
+openxr/enabled=false
+openxr/startup_alert=false
+openxr/default_action_map="res://openxr_action_map.tres"
+shaders/enabled=true

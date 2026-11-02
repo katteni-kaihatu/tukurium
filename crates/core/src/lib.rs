@@ -294,6 +294,22 @@ impl WorldModel {
         )
     }
 
+    /// Read-only XR view guard using the same evaluated colliders as locomotion.
+    pub fn view_position_clear(&self, position: [f64; 3]) -> bool {
+        let Some(player) = self.local_player() else { return false };
+        if !position.iter().all(|v| v.is_finite()) { return false; }
+        let point = glam::DVec3::from_array(position);
+        let base = glam::DVec3::new(player.pose.position[0], position[1], player.pose.position[2]);
+        let delta = point - base;
+        let distance = delta.length();
+        if distance > 2.0 || position[1] < player.pose.position[1] + 0.03 || position[1] > player.pose.position[1] + 2.7 { return false; }
+        self.world.resource::<collision::CollisionWorld>().0.iter().filter(|b| b.solid).all(|b| {
+            let local = b.rotation.conjugate() * (point - glam::DVec3::from_array(b.center));
+            let outside = (local.abs() - b.half).max(glam::DVec3::ZERO);
+            outside.length() > 0.08 && (distance < 1e-6 || b.raycast(base.to_array(), (delta / distance).to_array(), distance).is_none())
+        })
+    }
+
     pub fn set_player_input(
         &mut self,
         input: kokoverse_protocol::PlayerInput,

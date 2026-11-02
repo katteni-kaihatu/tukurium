@@ -141,7 +141,7 @@ Fluxは保存用グラフ、コンパイル済み実行計画、Instanceごと�
 
 共有状態を動かす物理計算は将来Engineに導入する。Godotの剛体シミュレーションを共有状態の正本にしない。最初は静的な床とEngine管理の簡単な移動に絞り、Godotの衝突判定は表示・選択用に限定する。
 
-VRを追加するときは、カメラと頭・手の最新姿勢をGodot側で即座に表示し、同じ姿勢をEngineへ入力として送る。表示をEngineやネットワークの往復に待たせない。入力をマウス固有の操作から分離し、ポインター、選択、つかむ、移動などのIntentにしておく。[GodotのXR構成](https://docs.godotengine.org/en/stable/tutorials/xr/setting_up_xr.html)。
+VRを追加するときは、カメラと頭・手の最新姿勢をGodot側で即座に表示する。共有する姿勢はEngineへ入力として送り、表示をEngineやネットワークの往復に待たせない。入力をマウス固有の操作から分離し、ポインター、選択、つかむ、移動などのIntentにしておく。[GodotのXR構成](https://docs.godotengine.org/en/stable/tutorials/xr/setting_up_xr.html)。初期対応はHMDでの見回しと移動に絞る。[VR対応の計画](vr-support-plan.md)で、セッションを維持する表示切り替え、Godot 4.7.2の初期化制約、段階ごとの完了条件を整理する。手と頭の詳細な姿勢同期は後続の対象とする。
 
 **段階ごとの試作で、分離と共同編集を検証する**
 

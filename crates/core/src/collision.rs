@@ -369,6 +369,20 @@ mod tests {
         assert!(t > 0.0 && t < 1.0);
         assert!(normal.x.abs() > 0.7 && normal.z > 0.7);
     }
+
+    #[test]
+    fn xr_view_guard_rejects_walls_and_invalid_positions_without_moving_player() {
+        let mut m = model([0.0, 0.75, 0.0], [0.0, 0.0, 2.0]);
+        step(&mut m, PlayerInput::default());
+        let before = m.local_player().unwrap();
+        let snapshot = m.snapshot();
+        assert!(m.view_position_clear([0.0, 1.5, 2.0]));
+        assert!(!m.view_position_clear([0.0, 1.4, 0.7]));
+        assert!(!m.view_position_clear([f64::NAN, 1.5, 2.0]));
+        assert!(!m.view_position_clear([0.0, -1.0, 2.0]));
+        assert_eq!(m.local_player().unwrap(), before);
+        assert_eq!(m.snapshot(), snapshot);
+    }
     fn model(box_position: [f64; 3], player: [f64; 3]) -> WorldModel {
         let mut m = WorldModel::new();
         let mut s = m.snapshot();

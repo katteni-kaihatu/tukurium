@@ -26,6 +26,7 @@ var sync_label: Label
 var fps_label: Label
 var engine_label: Label
 var mode_button: Button
+var vr_button: Button
 var language_selector: OptionButton
 var language_status: Label
 var ring_target := ""
@@ -116,6 +117,7 @@ func setup(owner) -> void:
 	row.add_child(fps_label)
 	mode_button=button(row,"FPS",cycle_view)
 	mode_button.tooltip_text="視点切り替え · F5"
+	vr_button=button(row,"VRに入る",func(): app.vr.start())
 	build_menu()
 	build_dock()
 	refresh_edit_mode()

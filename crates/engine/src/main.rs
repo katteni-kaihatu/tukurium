@@ -10,6 +10,7 @@ mod management;
 mod media_clock;
 mod persistence;
 mod previews;
+mod presentation;
 mod state_rules;
 use kokoverse_core::{WorldModel, replication::REGISTRY};
 use kokoverse_protocol::{
@@ -126,6 +127,7 @@ struct Engine {
     inflight: HashMap<String, u64>,
     peer: String,
     input_owner: Option<(u64, std::time::Instant)>,
+    presentation: presentation::Bridge,
     last_tick: std::time::Instant,
     pose_sequence: u64,
     remote_epochs: HashMap<String, String>,
@@ -139,6 +141,16 @@ struct Engine {
 }
 
 impl Engine {
+    fn presentation_change(&mut self, change: presentation::Change) {
+        if change.stop_input {
+            self.input_owner = None;
+            self.model.stop_player_input();
+        }
+        for (id, body) in change.notices {
+            let value = self.envelope(body);
+            self.send(id, value);
+        }
+    }
     fn service_state(&self) -> Value {
         json!({"kind":"service_state","enabled":self.service.is_some(),"user":self.service_user,
             "session":self.active_session.as_ref().map(|s|json!({"id":s["session"]["id"],"name":s["session"]["name"],"host":s["host"]}))})
@@ -621,6 +633,8 @@ impl Engine {
         }
     }
     fn tick(&mut self) {
+        let change = self.presentation.expire(std::time::Instant::now());
+        self.presentation_change(change);
         self.update_engine_clock();
         self.model.set_drive_clock_ready(self.synced && (self.host || self.clock.ready()));
         self.model.set_script_authority(self.host);
@@ -774,6 +788,29 @@ impl Engine {
             self.send(id, envelope);
             return;
         }
+        if envelope.body["kind"] == "presentation" {
+            let request_id = envelope.body["request_id"].as_str().unwrap_or("").to_string();
+            if envelope.body["action"] == "view" {
+                let clear = self.presentation.permits_input(id) && serde_json::from_value::<[f64; 3]>(envelope.body["position"].clone()).is_ok_and(|point| self.model.view_position_clear(point));
+                self.reply(Origin::Local(id), json!({"kind":"presentation_result","request_id":request_id,"ok":true,"data":{"clear":clear}}));
+                return;
+            }
+            let result = if envelope.body["action"] == "begin"
+                && (!self.synced || (self.service.is_some() && !self.managed_verified) || self.input_owner.is_some_and(|(owner, _)| owner != id)) {
+                Err("The current display is not ready to switch")
+            } else {
+                self.presentation.request(id, &envelope.body, std::time::Instant::now())
+            };
+            let reply = match result {
+                Ok((data, change)) => {
+                    self.presentation_change(change);
+                    json!({"kind":"presentation_result","request_id":request_id,"ok":true,"data":data})
+                }
+                Err(message) => json!({"kind":"presentation_result","request_id":request_id,"ok":false,"message":message}),
+            };
+            self.reply(Origin::Local(id), reply);
+            return;
+        }
         if envelope.body["kind"] == "chat_send" {
             if !state_rules::accepts_local(
             self.synced,
@@ -852,6 +889,7 @@ impl Engine {
             return;
         }
         if envelope.body["kind"] == "player_input" {
+            if !self.presentation.permits_input(id) { return; }
             let Ok(input) = serde_json::from_value::<PlayerInput>(envelope.body["input"].clone())
             else {
                 return;
@@ -1405,6 +1443,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         inflight: HashMap::new(),
         peer: arg("--peer", if host { "host" } else { "guest" }),
         input_owner: None,
+        presentation: Default::default(),
         last_tick: std::time::Instant::now(),
         pose_sequence: 0,
         remote_epochs: HashMap::new(),
@@ -1654,6 +1693,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     if matches!(operation.as_str(),"login"|"import_profile"|"create_session"|"join_session"|"leave_session"){engine.ui(engine.service_state());engine.publish_state();}
                 },
                 Some(Event::Closed(id)) => {
+                    let change = engine.presentation.closed(id);
+                    engine.presentation_change(change);
                     engine.edit_sessions.forget(&format!("local-{id}"));
                     engine.close_asset_client(id);
                     if engine.grab_owner == Some(id) { engine.cancel_grab(); }

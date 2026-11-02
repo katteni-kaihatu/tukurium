@@ -14,11 +14,16 @@ func setup(controller, id: String) -> void:
 	panel_id = id
 	inspector_content = manager.app.objects[id].get("creation") == null
 	content = INSPECTOR_VIEW.new() if inspector_content else CREATION_VIEW.new()
+	setup_local(content, Vector2i(720, 960), Vector2(1.2, 1.6), content.setup.bind(controller, id), id)
+
+## Reuse the same surface and pointer mapping for a private XR menu.
+func setup_local(view: Control, pixels: Vector2i, meters: Vector2, configure: Callable = Callable(), object_id: String = "") -> void:
+	content = view
 	var quad := QuadMesh.new()
-	quad.size = Vector2(1.2, 1.6)
+	quad.size = meters
 	mesh = quad
 	viewport.name = "PanelViewport"
-	viewport.size = Vector2i(720, 960)
+	viewport.size = pixels
 	viewport.transparent_bg = false
 	viewport.disable_3d = true
 	viewport.gui_embed_subwindows = true
@@ -26,7 +31,7 @@ func setup(controller, id: String) -> void:
 	add_child(viewport)
 	viewport.add_child(content)
 	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	content.setup(controller, id)
+	if configure.is_valid(): configure.call()
 	var surface := StandardMaterial3D.new()
 	surface.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	surface.albedo_texture = viewport.get_texture()
@@ -35,11 +40,11 @@ func setup(controller, id: String) -> void:
 	material_override = surface
 	var body := StaticBody3D.new()
 	body.name = "PickBody"
-	body.set_meta("object_id", id)
+	if not object_id.is_empty(): body.set_meta("object_id", object_id)
 	var collision := CollisionShape3D.new()
 	collision.name = "Collider"
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.2, 1.6, 0.05)
+	shape.size = Vector3(meters.x, meters.y, 0.05)
 	collision.shape = shape
 	body.add_child(collision)
 	add_child(body)
@@ -85,7 +90,7 @@ func leave_pointer() -> void:
 
 func clear_focus() -> void:
 	viewport.gui_release_focus()
-	content.finish_all()
+	if content.has_method("finish_all"): content.finish_all()
 
 func has_text_focus() -> bool:
 	var focus := viewport.gui_get_focus_owner()

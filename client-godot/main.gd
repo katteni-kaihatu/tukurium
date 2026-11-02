@@ -15,6 +15,8 @@ const PRIMITIVE_MESH = preload("res://primitive_mesh.gd")
 const RENDER_HIERARCHY = preload("res://render_hierarchy.gd")
 const CAMERA_TOOL = preload("res://camera_tool.gd")
 const MIRROR_RENDERER = preload("res://mirror_renderer.gd")
+const VR_SESSION = preload("res://vr_session.gd")
+var vr = VR_SESSION.new()
 var render_hierarchy = RENDER_HIERARCHY.new()
 var camera_tool = CAMERA_TOOL.new()
 var mirror_renderer = MIRROR_RENDERER.new()
@@ -178,6 +180,8 @@ func _ready() -> void:
 	add_child(mirror_renderer)
 	mirror_renderer.setup(self)
 	set_view_mode(1, false)
+	add_child(vr)
+	vr.setup(self)
 	connect_engine()
 
 func refresh_localized_chrome() -> void:
@@ -840,6 +844,7 @@ func connect_engine() -> void:
 	retry_at = Time.get_ticks_msec() + 2000
 
 func disconnect_engine(message: String) -> void:
+	vr.disconnected()
 	if close_with_engine and connected:
 		get_tree().quit()
 	requests.disconnected()
@@ -865,6 +870,10 @@ func disconnect_engine(message: String) -> void:
 
 func send_player_input() -> void:
 	if not connected: return
+	if vr.blocks_desktop():
+		if vr.child and vr.control and vr.rig != null:
+			queue_message({"kind":"player_input", "input":vr.rig.player_input()})
+		return
 	var movement := Vector2.ZERO
 	var keyboard_blocked := gameplay_keyboard_blocked()
 	var jump_held: bool = Input.is_action_pressed("jump") and not keyboard_blocked
@@ -954,6 +963,7 @@ func draw_interaction_rays() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		if vr.child: return
 		release_cursor()
 		world_panels.capture_id = ""
 		world_panels.clear_focus()
@@ -1082,6 +1092,7 @@ func _process(delta: float) -> void:
 		camera.position += camera.global_basis * movement.normalized() * delta * 5
 	if player_initialized:
 		player_position = player_position.lerp(player_target_position, 1.0 - exp(-35.0 * delta))
+	vr.tick()
 	if avatar_camera and player_initialized and not gizmo.dragging:
 		if first_person:
 			camera.position = player_position + Vector3(0, 1.15, 0)
@@ -1159,6 +1170,9 @@ func accept_message(message: Dictionary) -> void:
 		avatar_restore_started = false
 	epoch = message.authority_epoch
 	var body: Dictionary = message.body
+	if body.get("kind") == "presentation_state":
+		vr.receive(body)
+		return
 	if body.get("kind") == "result" and body.has("snapshot"): apply_snapshot(body.snapshot)
 	if requests.receive(body): return
 	if world_panels.receive(body): return
@@ -1563,6 +1577,7 @@ func refresh_fields() -> void:
 	filling = false
 
 func _input(event: InputEvent) -> void:
+	if vr.blocks_desktop(): return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and not pressed_button_id.is_empty():
 		script_editor.button_event(pressed_button_id, "release")
 		pressed_button_id = ""
@@ -1597,6 +1612,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if vr.blocks_desktop(): return
 	if hud.blocking(): return
 	if service_panel.enabled and service_panel.shade.visible: return
 	if event is InputEventKey and event.keycode == KEY_ESCAPE and event.pressed:
