@@ -47,21 +47,24 @@
     head.id = "drag";
     const title = el("h2", null, "Inspector");
     title.id = "title";
-    const pin = el("button", "ghost", "ピン");
+    const pin = el("button", "tb pin");
     pin.id = "pin";
     pin.type = "button";
+    pin.setAttribute("aria-label", "ピン留め");
     pin.setAttribute("aria-pressed", "false");
-    const close = el("button", "icon", "×");
+    pin.title = "ピン留め: オフ（3D空間に置く）";
+    pin.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3.5h6l-1 6.5 3.5 3.5h-11L10 10z"></path><path d="M12 13.5V21"></path></svg>';
+    const close = el("button", "tb");
     close.id = "close";
     close.type = "button";
     close.setAttribute("aria-label", "閉じる");
+    close.title = "閉じる";
+    close.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18"></path><path d="M6 6l12 12"></path></svg>';
     head.append(title, pin, close);
     const tabs = el("div", "tabs");
     const objectTab = el("button", "tab", "Object");
     objectTab.dataset.tab = "object";
-    const scriptsTab = el("button", "tab", "Scripts");
-    scriptsTab.dataset.tab = "scripts";
-    tabs.append(objectTab, scriptsTab);
+    tabs.append(objectTab);
     const body = el("div", "inspector-body");
     const tree = el("aside", "tree");
     tree.id = "tree";
@@ -73,15 +76,12 @@
     shell.append(head, tabs, body, message);
     root.append(shell);
     pin.addEventListener("click", () => post({ type: "command", name: "inspector" }));
-    close.addEventListener("click", () => post({ type: "command", name: "inspector" }));
-    tabs.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-tab]");
-      if (!button) return;
-      state.tab = button.dataset.tab;
-      if (state.view) render(state.view);
-      if (state.tab === "scripts") post({ type: "command", name: "scripts_tab", open: true, panel: state.view && state.view.panelId });
-      else post({ type: "command", name: "scripts_tab", open: false, panel: state.view && state.view.panelId });
-    });
+    close.addEventListener("click", () => post({
+      type: "command",
+      name: "close_inspector",
+      panel: state.view && state.view.panelId,
+    }));
+    state.tab = "object";
     main.addEventListener("change", onChange);
     main.addEventListener("click", onClick);
     tree.addEventListener("click", onTreeClick);
@@ -119,6 +119,16 @@
   }
 
   function onTreeClick(event) {
+    const action = event.target.closest("[data-tree-action]");
+    if (action && state.view) {
+      const name = action.dataset.treeAction;
+      const panel = state.view.panelId;
+      const target = state.view.target;
+      if (name === "duplicate" || name === "delete") {
+        post({ type: "command", name, panel, target });
+      }
+      return;
+    }
     const item = event.target.closest("[data-object]");
     if (!item || !state.view) return;
     post({ type: "command", name: "set_target", panel: state.view.panelId, target: item.dataset.object });
@@ -148,28 +158,8 @@
       return;
     }
     if (action === "open_script") {
-      state.tab = "scripts";
       state.scriptId = button.dataset.script || "";
       post({ type: "command", name: "open_script", panel, script: state.scriptId });
-      render(state.view);
-      return;
-    }
-    if (action === "apply_script") {
-      post({ type: "command", name: "script_apply", panel, target: state.view.target, script: state.scriptId, source: state.scriptText });
-      state.dirtyScript = false;
-      return;
-    }
-    if (action === "reload_script") {
-      state.dirtyScript = false;
-      post({ type: "command", name: "open_script", panel, script: state.scriptId });
-      return;
-    }
-    if (action === "graph_add") {
-      post({ type: "command", name: "graph_op", panel, ops: [{ kind: "add_node", node_kind: button.dataset.kind, x: 40, y: 40 }] });
-      return;
-    }
-    if (action === "apply_graph") {
-      post({ type: "command", name: "graph_apply", panel });
       return;
     }
     if (action === "driver") {
@@ -214,6 +204,17 @@
     tree.replaceChildren();
     const heading = el("div", "tree-head", "Hierarchy");
     tree.append(heading);
+    const tools = el("div", "tree-actions");
+    const dup = el("button", "ghost tiny", "Duplicate");
+    dup.type = "button";
+    dup.dataset.treeAction = "duplicate";
+    dup.disabled = !view.editable || !view.target;
+    const del = el("button", "ghost tiny", "Delete");
+    del.type = "button";
+    del.dataset.treeAction = "delete";
+    del.disabled = !view.editable || !view.target;
+    tools.append(dup, del);
+    tree.append(tools);
     const objects = view.objects || [];
     const byParent = {};
     for (const object of objects) {
@@ -306,6 +307,22 @@
   function renderObject(view) {
     const main = document.querySelector("#main");
     main.replaceChildren();
+    if (view.playLocked) {
+      const lock = el("div", "section");
+      lock.append(el("h3", null, "Play mode"));
+      lock.append(el("p", "empty", "Play mode 中は編集できません。Edit mode に戻ってください。"));
+      const back = el("button", "ghost", "Edit mode に戻る");
+      back.type = "button";
+      back.addEventListener("click", () => post({ type: "command", name: "edit_mode", value: true }));
+      lock.append(back);
+      main.append(lock);
+    }
+    if (view.prefabEditing) {
+      const banner = el("div", "section");
+      banner.append(el("h3", null, "Editing"));
+      banner.append(el("p", "empty", "ここでの変更は、このプレハブから生まれるすべてのモノに反映されます。"));
+      main.append(banner);
+    }
     const actions = el("div", "actions");
     const catalog = el("button", "ghost", state.catalogOpen ? "− Close Component List" : "+ Add Component");
     catalog.type = "button";
@@ -339,7 +356,7 @@
     for (const section of view.sections || []) {
       const card = el("section", "section");
       const heading = el("div", "section-head");
-      heading.append(el("h3", null, section.name));
+      heading.append(el("h3", null, section.heading || section.name));
       if (section.removable) {
         const remove = el("button", "ghost tiny", "Remove");
         remove.type = "button";
@@ -352,19 +369,41 @@
       for (const field of section.fields || []) card.append(fieldRow(field, view.editable));
       main.append(card);
     }
-    if (!view.sections || view.sections.length === 0) {
-      main.append(el("p", "empty", "ワールドで対象を選んでください。"));
+    const kokostate = el("section", "section");
+    kokostate.append(el("h3", null, "KokoState"));
+    if (view.kokostate && view.kokostate.length) {
+      for (const entry of view.kokostate) {
+        kokostate.append(el("p", "empty", entry.name || entry.id || "KokoState"));
+      }
+    } else {
+      kokostate.append(el("p", "empty", "KokoState はありません"));
+      const add = el("button", "ghost tiny", "Add KokoState");
+      add.type = "button";
+      add.disabled = !view.editable;
+      add.dataset.action = "open_script";
+      add.dataset.script = "";
+      kokostate.append(add);
+      kokostate.append(el("p", "empty", "— Resources に作って定義を開く"));
     }
-  }
-
-  function renderScripts(view) {
-    const main = document.querySelector("#main");
-    main.replaceChildren();
+    main.append(kokostate);
+    const systems = el("section", "section");
+    systems.append(el("h3", null, "Systems"));
+    systems.append(el("p", "empty", "この Entity をクエリで処理している · 読み取り専用"));
+    if (view.systems && view.systems.length) {
+      for (const entry of view.systems) {
+        systems.append(el("p", "empty", entry.name || entry.id || "System"));
+      }
+    } else {
+      systems.append(el("p", "empty", "マッチする System はありません"));
+    }
+    main.append(systems);
+    const scripts = el("section", "section");
+    scripts.append(el("h3", null, "Scripts"));
     const list = el("div", "script-list");
     for (const script of view.scripts || []) {
       const row = el("div", "script-row");
       row.append(el("span", null, `${script.name} · ${script.enabled ? "Running" : "Paused"}`));
-      const edit = el("button", "ghost tiny", "Edit");
+      const edit = el("button", "ghost tiny", "Script Editor");
       edit.type = "button";
       edit.dataset.action = "open_script";
       edit.dataset.script = script.id;
@@ -372,81 +411,37 @@
       list.append(row);
     }
     if (!view.scripts || view.scripts.length === 0) list.append(el("p", "empty", "No scripts attached"));
-    const manage = el("button", "ghost", "Manage scripts");
+    const manage = el("button", "ghost", "Resources / Script Editor");
     manage.type = "button";
     manage.dataset.action = "open_script";
     manage.dataset.script = "";
     list.append(manage);
-    main.append(list);
-    if (view.graph) {
-      const graphBox = el("div", "graph");
-      graphBox.append(el("h3", null, "Node graph"));
-      const tools = el("div", "actions");
-      ["number", "add", "write_field", "on_update"].forEach((kind) => {
-        const add = el("button", "ghost tiny", "+ " + kind);
-        add.type = "button";
-        add.dataset.action = "graph_add";
-        add.dataset.kind = kind;
-        tools.append(add);
-      });
-      const apply = el("button", "ghost tiny", "Apply graph");
-      apply.type = "button";
-      apply.dataset.action = "apply_graph";
-      tools.append(apply);
-      graphBox.append(tools);
-      const canvas = el("div", "graph-canvas");
-      for (const node of view.graph.nodes || []) {
-        const card = el("div", "graph-node");
-        card.style.left = `${node.x || 0}px`;
-        card.style.top = `${node.y || 0}px`;
-        card.textContent = `${node.kind || node.id}`;
-        canvas.append(card);
-      }
-      if ((view.graph.nodes || []).length === 0) canvas.append(el("p", "empty", "ノードを追加してください。"));
-      graphBox.append(canvas);
-      main.append(graphBox);
-      return;
+    scripts.append(list);
+    scripts.append(el("p", "empty", "作成は Resources、編集は Script Editor（共有パネル）。"));
+    main.append(scripts);
+    if (!view.sections || view.sections.length === 0) {
+      main.append(el("p", "empty", "ワールドで対象を選んでください。"));
     }
-    const editor = el("div", "script-editor");
-    const area = el("textarea", "code");
-    area.dataset.field = "script_source";
-    area.dataset.type = "script_source";
-    area.value = view.scriptText || state.scriptText || "";
-    area.disabled = !view.editable;
-    state.scriptText = area.value;
-    area.addEventListener("input", () => {
-      state.scriptText = area.value;
-      state.dirtyScript = true;
-      state.focused = true;
-    });
-    area.addEventListener("focus", () => { state.focused = true; });
-    area.addEventListener("blur", () => { state.focused = false; });
-    editor.append(area);
-    const actions = el("div", "actions");
-    const apply = el("button", "ghost", "Apply code");
-    apply.type = "button";
-    apply.dataset.action = "apply_script";
-    const reload = el("button", "ghost", "Reload draft");
-    reload.type = "button";
-    reload.dataset.action = "reload_script";
-    actions.append(apply, reload);
-    editor.append(actions);
-    main.append(editor);
   }
 
   function render(view) {
     state.view = view;
+    state.tab = "object";
     const shell = document.querySelector("#inspector-root");
     if (!shell) return;
     document.querySelector("#title").textContent = view.title || "Inspector";
     document.querySelector("#message").textContent = view.message || "";
-    document.querySelector("#pin").setAttribute("aria-pressed", view.open ? "true" : "false");
+    const pin = document.querySelector("#pin");
+    const pinned = !!view.open;
+    pin.setAttribute("aria-pressed", pinned ? "true" : "false");
+    pin.title = pinned ? "ピン留め: オン（画面に固定）" : "ピン留め: オフ（3D空間に置く）";
+    const glyph = pin.querySelector("svg");
+    if (glyph) glyph.setAttribute("fill", pinned ? "currentColor" : "none");
     document.querySelectorAll(".tab").forEach((tab) => {
-      tab.setAttribute("aria-pressed", tab.dataset.tab === state.tab ? "true" : "false");
+      tab.setAttribute("aria-pressed", tab.dataset.tab === "object" ? "true" : "false");
     });
     renderTree(view);
-    if (state.tab === "scripts") renderScripts(view);
-    else renderObject(view);
+    renderObject(view);
     if (global.tukurium && global.tukurium.report) global.tukurium.report(false);
     if (view.mode === "panel" && global.tukurium && global.tukurium.requestCapture) {
       global.tukurium.requestCapture();
@@ -464,7 +459,7 @@
       return;
     }
     // Keep caret and draft while typing; FPS labels must not rebuild the form.
-    if (editingField() || (state.focused && state.tab === "scripts" && state.dirtyScript)) {
+    if (editingField()) {
       state.view = view;
       const title = document.querySelector("#title");
       const message = document.querySelector("#message");

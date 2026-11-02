@@ -54,6 +54,10 @@ fn remove_world_text(object: &mut ObjectView) -> Result<(), String> {
     object.world_text = None;
     Ok(())
 }
+fn remove_item_boundary(object: &mut ObjectView) -> Result<(), String> {
+    object.item_boundary = None;
+    Ok(())
+}
 fn remove_mirror(object: &mut ObjectView) -> Result<(), String> {
     object.mirror = None;
     Ok(())
@@ -234,6 +238,7 @@ pub static REGISTRY: LazyLock<Registry> = LazyLock::new(|| Registry {
     attachments: vec![
         AttachmentRegistration { type_id: "MeshRenderer", remove: remove_mesh, defaults: || json!({"color":[0.2,0.65,0.8,1.0],"visual":{"kind":"primitive","shape":"quad"}}) },
         AttachmentRegistration { type_id: "WorldText", remove: remove_world_text, defaults: || json!({"world_text":"Text","world_text_color":[1.0,1.0,1.0,1.0]}) },
+        AttachmentRegistration { type_id: "ItemBoundary", remove: remove_item_boundary, defaults: || json!({"item_boundary_prefab_key":"","item_boundary_editing":false}) },
         AttachmentRegistration { type_id: "Mirror", remove: remove_mirror, defaults: || json!({"mirror_enabled":true}) },
         AttachmentRegistration { type_id: "Camera", remove: remove_camera, defaults: || json!({"camera_enabled":true}) },
         AttachmentRegistration { type_id: "ValueNumber", remove: remove_value_number, defaults: || json!({"value_number":0.0}) },
@@ -466,6 +471,62 @@ pub static REGISTRY: LazyLock<Registry> = LazyLock::new(|| Registry {
             apply: |w, e, _, v| w.get_mut::<crate::components::CreationView>(e).unwrap().0.shape = parse(&v).unwrap(),
         },
         ComponentRegistration {
+            type_id: "ResourcesView",
+            local_id: 20,
+            fields: vec![
+                editable("resources_target", "Selected slot", "address", 29, inspector_target),
+                editable("panel_scroll", "Scroll", "panel_scroll", 30, panel_scroll),
+            ],
+            present: |o| o.resources.is_some(),
+            project: |o| {
+                let r = o.resources.as_ref().unwrap();
+                json!({"resources_target":r.target,"panel_scroll":r.scroll})
+            },
+            restore: |o, v| {
+                o.resources = Some(kokoverse_protocol::ResourcesView {
+                    target: parse(&v["resources_target"])?,
+                    scroll: parse(&v["panel_scroll"])?,
+                });
+                Ok(())
+            },
+            apply: |w, e, id, v| crate::panels::write_field(w, e, id, v),
+        },
+        ComponentRegistration {
+            type_id: "ScriptEditorView",
+            local_id: 21,
+            fields: vec![
+                editable("script_editor_target", "Script slot", "address", 31, inspector_target),
+                editable("script_editor_script_id", "Selected script", "script_id", 32, inspector_script_id),
+                editable("script_editor_scroll", "Scroll", "panel_scroll", 33, panel_scroll),
+            ],
+            present: |o| o.script_editor.is_some(),
+            project: |o| {
+                let s = o.script_editor.as_ref().unwrap();
+                json!({"script_editor_target":s.target,"script_editor_script_id":s.script_id,"script_editor_scroll":s.scroll})
+            },
+            restore: |o, v| {
+                o.script_editor = Some(kokoverse_protocol::ScriptEditorView {
+                    target: parse(&v["script_editor_target"])?,
+                    script_id: parse(&v["script_editor_script_id"])?,
+                    scroll: parse(&v["script_editor_scroll"])?,
+                });
+                Ok(())
+            },
+            apply: |w, e, id, v| crate::panels::write_field(w, e, id, v),
+        },
+        ComponentRegistration {
+            type_id: "WorkspaceView",
+            local_id: 22,
+            fields: vec![],
+            present: |o| o.workspace.is_some(),
+            project: |_| json!({}),
+            restore: |o, _| {
+                o.workspace = Some(kokoverse_protocol::WorkspaceView {});
+                Ok(())
+            },
+            apply: no_edit,
+        },
+        ComponentRegistration {
             type_id: "WorldText",
             local_id: 11,
             fields: vec![
@@ -489,6 +550,41 @@ pub static REGISTRY: LazyLock<Registry> = LazyLock::new(|| Registry {
                 match id {
                     "world_text" => text.0.text = parse(&v).unwrap(),
                     "world_text_color" => text.0.color = parse(&v).unwrap(),
+                    _ => unreachable!(),
+                }
+            },
+        },
+        ComponentRegistration {
+            type_id: "ItemBoundary",
+            local_id: 23,
+            fields: vec![
+                editable("item_boundary_prefab_key", "Prefab key", "string", 34, |v| {
+                    let s: String = parse(v)?;
+                    if s.len() > 120 { return Err("Prefab key too long".into()); }
+                    Ok(())
+                }),
+                editable("item_boundary_editing", "Editing prefab", "bool", 35, boolean),
+            ],
+            present: |o| o.item_boundary.is_some(),
+            project: |o| {
+                let b = o.item_boundary.as_ref().unwrap();
+                json!({
+                    "item_boundary_prefab_key": b.prefab_key,
+                    "item_boundary_editing": b.editing_prefab,
+                })
+            },
+            restore: |o, v| {
+                o.item_boundary = Some(kokoverse_protocol::ItemBoundary {
+                    prefab_key: parse(&v["item_boundary_prefab_key"])?,
+                    editing_prefab: parse(&v["item_boundary_editing"])?,
+                });
+                Ok(())
+            },
+            apply: |w, e, id, v| {
+                let mut boundary = w.get_mut::<crate::components::ItemBoundary>(e).unwrap();
+                match id {
+                    "item_boundary_prefab_key" => boundary.0.prefab_key = parse(&v).unwrap(),
+                    "item_boundary_editing" => boundary.0.editing_prefab = parse(&v).unwrap(),
                     _ => unreachable!(),
                 }
             },

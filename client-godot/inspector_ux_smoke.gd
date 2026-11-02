@@ -84,29 +84,23 @@ func run() -> void:
 		window.push_input(event, true)
 	if not await until(func(): return scene.world_panels.field_data(view.target_id, "name").value == "Native shared inspector", "Native typing not committed"): quit(1); return
 	line.release_focus()
-	var before_tabs: String = scene.objects[panel.panel_id].object_revision
-	view.tabs.current_tab = 1
-	if not await until(func(): return view.script_mount.visible and not view.script_view.document.is_empty(), "Scripts tab did not open"): quit(1); return
-	if not view.hierarchy.visible or world_view.script_mount.visible or scene.objects[panel.panel_id].object_revision != before_tabs:
-		push_error("Desktop tab switch affected hierarchy or shared panel state"); quit(1); return
-	view.tabs.current_tab = 0
-	if not await until(func(): return view.scroll.visible, "Object tab did not open"): quit(1); return
-	world_view.tabs.current_tab = 1
-	if not await until(func(): return world_view.script_mount.visible, "World Scripts tab did not commit"): quit(1); return
-	if view.tabs.current_tab != 0 or not view.scroll.visible:
-		push_error("Shared world tab changed the desktop tab"); quit(1); return
-	world_view.tabs.current_tab = 0
-	if not await until(func(): return world_view.scroll.visible, "World Object tab did not commit"): quit(1); return
+	var before_editors: int = scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null).size()
+	view.open_script("")
+	if not await until(func(): return scene.world_panels.panels.values().filter(func(p): return scene.objects.get(p.panel_id, {}).get("resources") != null).size() > 0, "Resources panel did not open from desktop inspector"): quit(1); return
+	if world_view.script_mount.visible:
+		push_error("Inspector still shows Scripts mount"); quit(1); return
 	view.drive_buttons.rotation.pressed.emit()
-	if not await until(func(): return view.script_mount.visible and not view.script_view.document.is_empty(), "Driver editor did not open"): quit(1); return
+	if not await until(func(): return scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null).size() > before_editors, "Driver did not open Script Editor"): quit(1); return
 	var driver: Dictionary = scene.world_panels.field_driver(view.target_id, "rotation")
-	if view.script_view.editor.selected != driver.id: push_error("Wrong driver selected"); quit(1); return
+	var editor_panels: Array = scene.world_panels.panels.values().filter(func(p): return p.content.get("script_view") != null)
+	var editor_panel = editor_panels[editor_panels.size() - 1]
+	if not await until(func(): return editor_panel.content.script_view.editor.selected == driver.id, "Wrong driver selected in Script Editor"): quit(1); return
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--screenshot="):
 			await RenderingServer.frame_post_draw
 			window.get_texture().get_image().save_png(argument.trim_prefix("--screenshot=").replace(".png", "-scripts.png"))
-	view.tabs.current_tab = 0
-	if not await until(func(): return view.scroll.visible, "Could not return to components"): quit(1); return
+	if not view.scroll.visible:
+		push_error("Object view should remain visible"); quit(1); return
 	view.scroll.scroll_vertical = 0
 	await process_frame
 	for argument in OS.get_cmdline_user_args():

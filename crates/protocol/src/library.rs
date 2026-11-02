@@ -32,3 +32,15 @@ impl Default for ItemPermissions {
         }
     }
 }
+
+/// Marks the Slot range that saves / duplicates together as one work.
+/// Distinct from parent/child layout. Prefab instances share `prefab_key`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ItemBoundary {
+    /// Empty when this root is a one-off work, not a prefab template.
+    #[serde(default)]
+    pub prefab_key: String,
+    /// When true, edits to this root apply to all instances with the same prefab_key.
+    #[serde(default)]
+    pub editing_prefab: bool,
+}

@@ -1,10 +1,11 @@
 extends CanvasLayer
 ## Personal session UI. Shared participants and messages are supplied by the Engine.
-const INK := Color("101b25")
-const LINE := Color("304550")
-const TEXT := Color("e6f0f4")
-const MUTED := Color("91a8b5")
-const ACCENT := Color("77dbce")
+const DesignChrome = preload("res://design_chrome.gd")
+const INK := Color("26262e")
+const LINE := Color("dcd5c8")
+const TEXT := Color("26262e")
+const MUTED := Color("5e5c64")
+const ACCENT := Color("603d56")
 var app
 var root := Control.new()
 var left: PanelContainer
@@ -29,13 +30,7 @@ var roster_signature := ""
 var slide: Tween
 
 func panel_style() -> StyleBoxFlat:
-	var box := StyleBoxFlat.new()
-	box.bg_color=Color("122530ec")
-	box.border_color=LINE
-	box.set_border_width_all(1)
-	box.set_corner_radius_all(14)
-	box.set_content_margin_all(12)
-	return box
+	return DesignChrome.panel(DesignChrome.PAPER_GLASS, 16, 12, true)
 
 func label(value: String, size: int = 14, color: Color = TEXT) -> Label:
 	var node := Label.new()
@@ -49,7 +44,7 @@ func small_button(value: String, action: Callable) -> Button:
 	node.text=value
 	node.focus_mode=Control.FOCUS_NONE
 	node.mouse_default_cursor_shape=Control.CURSOR_POINTING_HAND
-	node.add_theme_color_override("font_color",TEXT)
+	DesignChrome.style_ghost(node)
 	node.pressed.connect(action)
 	return node
 
@@ -119,8 +114,10 @@ func setup(owner) -> void:
 	chat_input.max_length=1000
 	chat_input.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	chat_input.text_submitted.connect(func(_value): send_chat())
+	DesignChrome.style_line_edit(chat_input)
 	compose.add_child(chat_input)
 	send_button=small_button("送信",send_chat)
+	DesignChrome.style_primary(send_button)
 	compose.add_child(send_button)
 	left_edge=small_button("›",func(): set_stowed(false))
 	left_edge.position=Vector2(0,95)
@@ -188,7 +185,7 @@ func refresh_roster() -> void:
 	if not own.is_empty(): add_player(own,0.0,true)
 	for row in rows:
 		if row[3]:
-			var heading := label(["●  すぐそば · 3m以内","●  近く · 15m以内","●  とおく"][row[2]],12,[ACCENT,Color("e9bc70"),MUTED][row[2]])
+			var heading := label(["●  すぐそば · 3m以内","●  近く · 15m以内","●  とおく"][row[2]],12,[ACCENT,DesignChrome.WARN,MUTED][row[2]])
 			heading.mouse_filter=Control.MOUSE_FILTER_IGNORE
 			player_rows.add_child(heading)
 		add_player(row[0],row[1],false)

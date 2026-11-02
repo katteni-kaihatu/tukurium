@@ -270,6 +270,9 @@ pub(crate) fn validate_commands(
                         }
                         StructuralOperation::CreateInspector {target,position,rotation} => Ok(Mutation::Insert(Box::new(crate::panels::create(&snapshot.0,target,position,rotation)?))),
                         StructuralOperation::CreateCreationPanel {position,rotation} => Ok(Mutation::Insert(Box::new(crate::panels::create_creation(&snapshot.0,position,rotation)?))),
+                        StructuralOperation::CreateResourcesPanel {target,position,rotation} => Ok(Mutation::Insert(Box::new(crate::panels::create_resources(&snapshot.0,target,position,rotation)?))),
+                        StructuralOperation::CreateScriptEditorPanel {target,script_id,position,rotation} => Ok(Mutation::Insert(Box::new(crate::panels::create_script_editor(&snapshot.0,target,script_id,position,rotation)?))),
+                        StructuralOperation::CreateWorkspacePanel {position,rotation} => Ok(Mutation::Insert(Box::new(crate::panels::create_workspace(&snapshot.0,position,rotation)?))),
                         StructuralOperation::Create => {
                             let count = slots.iter().count();
                             if count >= MAX_OBJECTS { return Err("Object limit reached (128)".into()); }
@@ -575,6 +578,10 @@ pub(crate) fn extract_snapshot(
     buttons: Query<&Button>,
     contact_sensors: Query<&ContactSensor>,
     planar_motions: Query<&PlanarMotion>,
+    resources_views: Query<&ResourcesView>,
+    script_editor_views: Query<&ScriptEditorView>,
+    workspace_views: Query<&WorkspaceView>,
+    item_boundaries: Query<&ItemBoundary>,
     index: Res<EntityIndex>,
     revision: Res<WorldRevision>,
     changes: Res<ChangeSet>,
@@ -620,7 +627,11 @@ pub(crate) fn extract_snapshot(
             panel: panel.map(|p| p.0.clone()),
             inspector: inspector.map(|i| i.0.clone()),
             creation: creation.map(|c| c.0.clone()),
+            resources: resources_views.get(entity).ok().map(|r| r.0.clone()),
+            script_editor: script_editor_views.get(entity).ok().map(|s| s.0.clone()),
+            workspace: workspace_views.get(entity).ok().map(|w| w.0.clone()),
             world_text: world_text.map(|t| t.0.clone()),
+            item_boundary: item_boundaries.get(entity).ok().map(|b| b.0.clone()),
             mirror: mirror.map(|m| m.0),
             camera: camera.map(|c| c.0),
             value_number: value_numbers.get(entity).ok().map(|v| v.0),
@@ -683,6 +694,22 @@ pub(crate) fn extract_snapshot(
         if let Some(text) = &object.world_text {
             object.fields.push(crate::field("world_text", "Text", "string", serde_json::json!(text.text), revisions));
             object.fields.push(crate::field("world_text_color", "Text color", "color", serde_json::json!(text.color), revisions));
+        }
+        if let Some(boundary) = &object.item_boundary {
+            object.fields.push(crate::field(
+                "item_boundary_prefab_key",
+                "Prefab key",
+                "string",
+                serde_json::json!(boundary.prefab_key),
+                revisions,
+            ));
+            object.fields.push(crate::field(
+                "item_boundary_editing",
+                "Editing prefab",
+                "bool",
+                serde_json::json!(boundary.editing_prefab),
+                revisions,
+            ));
         }
         if let Some(enabled) = object.mirror {
             object.fields.push(crate::field("mirror_enabled", "Enabled", "bool", serde_json::json!(enabled), revisions));

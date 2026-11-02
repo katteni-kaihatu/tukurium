@@ -87,6 +87,14 @@ func setup(view) -> void:
 			manager.command({"kind":"structure","command":{"action":"duplicate","target":manager.app.address_of(object),"expected_revision":object.object_revision}},func(result):
 				if result.ok: inspector.choose_target(result.selected.instance_id)
 				else: inspector.message.text = result.get("message","Could not duplicate")))
+	view.add_button(self,"Delete",func():
+		var object: Dictionary = manager.app.objects.get(view.target_id,{})
+		if object.is_empty(): return
+		manager.command({"kind":"structure","command":{"action":"delete","target":manager.app.address_of(object),"expected_revision":object.object_revision}},func(result):
+			if result.ok:
+				inspector.choose_target("")
+				manager.app.select_object("")
+			else: inspector.message.text = result.get("message","Could not delete")))
 
 func set_root(address: Variant) -> void:
 	var next := tree_state.duplicate(true)
@@ -108,7 +116,7 @@ func refresh() -> void:
 	# stringifying every object. Only the small tree_state stays a string.
 	var entries_key: Array = []
 	for id in manager.app.objects:
-		if manager.app.objects[id].get("inspector") != null: continue
+		if manager.app.objects[id].get("panel") != null: continue
 		var parent: Variant = manager.app.objects[id].get("parent")
 		entries_key.append([id, parent.instance_id if parent is Dictionary else "", str(manager.field_data(id, "name").get("revision", ""))])
 	var next: Array = [entries_key, JSON.stringify(tree_state), inspector.target_id]
@@ -132,7 +140,7 @@ func add_children(parent: TreeItem, parent_id: String, depth: int) -> void:
 	if depth > 128: return
 	for id in manager.app.objects:
 		var object: Dictionary = manager.app.objects[id]
-		if object.get("inspector") != null: continue
+		if object.get("panel") != null: continue
 		var address: Variant = object.get("parent")
 		if (address == null and parent_id != "") or (address != null and address.instance_id != parent_id): continue
 		var item := tree.create_item(parent)

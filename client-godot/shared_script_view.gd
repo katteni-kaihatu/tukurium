@@ -130,7 +130,7 @@ func select_shared(id: String) -> void:
 	leave()
 	if not local_selection and not selecting:
 		selecting = true
-		manager.edit(panel_id,"inspector_script_id",null if id.is_empty() else id,func(_r): selecting = false)
+		manager.edit(panel_id,"script_editor_script_id",null if id.is_empty() else id,func(_r): selecting = false)
 	open_document()
 
 func open_document() -> void:

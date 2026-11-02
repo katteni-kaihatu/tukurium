@@ -4,11 +4,12 @@ const RING = preload("res://ring_menu.gd")
 const DesktopWindow = preload("res://desktop_window.gd")
 const CURSOR_IMAGE = preload("res://assets/ui/selection-cursor.png")
 const BRAND_ART = preload("res://brand_art.gd")
-const INK := Color("101b25")
-const LINE := Color("304550")
-const TEXT := Color("e6f0f4")
-const MUTED := Color("91a8b5")
-const ACCENT := Color("77dbce")
+const DesignChrome = preload("res://design_chrome.gd")
+const INK := Color("26262e")
+const LINE := Color("dcd5c8")
+const TEXT := Color("26262e")
+const MUTED := Color("5e5c64")
+const ACCENT := Color("603d56")
 var app
 var root := Control.new()
 var ring = RING.new()
@@ -33,13 +34,8 @@ var ring_target := ""
 var next_status := 0
 
 func style(color: Color, padding: int = 12) -> StyleBoxFlat:
-	var result := StyleBoxFlat.new()
-	result.bg_color = color
-	result.border_color = LINE
-	result.set_border_width_all(1)
-	result.set_corner_radius_all(8)
-	result.set_content_margin_all(padding)
-	return result
+	var box: StyleBoxFlat = DesignChrome.box(color, 10, padding, LINE)
+	return box
 
 func text(value: String, size: int = 15, color: Color = TEXT) -> Label:
 	var result := Label.new()
@@ -53,10 +49,7 @@ func button(parent: Node, value: String, action: Callable) -> Button:
 	result.text = value
 	result.focus_mode = Control.FOCUS_NONE
 	result.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	result.add_theme_color_override("font_color",TEXT)
-	result.add_theme_stylebox_override("normal",style(Color.TRANSPARENT,8))
-	result.add_theme_stylebox_override("hover",style(Color("233b47"),8))
-	result.add_theme_stylebox_override("pressed",style(Color("2b5057"),8))
+	DesignChrome.style_ghost(result)
 	result.pressed.connect(action)
 	parent.add_child(result)
 	return result
@@ -81,13 +74,13 @@ func setup(owner) -> void:
 	bar.name="TopBar"
 	bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	bar.offset_left=16; bar.offset_right=-16; bar.offset_top=14; bar.offset_bottom=66
-	bar.add_theme_stylebox_override("panel",style(Color("101b25f5"),8))
+	bar.add_theme_stylebox_override("panel", DesignChrome.panel(DesignChrome.PAPER_GLASS, 18, 8, true))
 	root.add_child(bar)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation",12)
 	bar.add_child(row)
 	var brand_panel := PanelContainer.new()
-	brand_panel.add_theme_stylebox_override("panel", style(Color("f5e9d5"), 3))
+	brand_panel.add_theme_stylebox_override("panel", DesignChrome.box(Color(0, 0, 0, 0), 3, 2))
 	brand_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(brand_panel)
 	var brand := HBoxContainer.new()
@@ -141,7 +134,7 @@ func build_menu() -> void:
 	menu.size=Vector2(530,470)
 	menu.position=Vector2(128,118)
 	menu.minimum_window_size=Vector2(420,320)
-	menu.panel.add_theme_stylebox_override("panel",style(INK,22))
+	menu.panel.add_theme_stylebox_override("panel", DesignChrome.panel(DesignChrome.PAPER, 18, 18, true))
 	menu.hide()
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation",12)
@@ -177,16 +170,20 @@ func build_menu() -> void:
 	settings.add_child(text("表示名",13,MUTED))
 	app.nickname.reparent(settings)
 	app.nickname.custom_minimum_size.y=38
+	DesignChrome.style_line_edit(app.nickname)
 	settings.add_child(text("アバター",13,MUTED))
 	var avatar_row := HBoxContainer.new()
 	settings.add_child(avatar_row)
 	app.avatar_button.reparent(avatar_row)
 	app.avatar_button.text="テクスチャを選択"
+	DesignChrome.style_quiet(app.avatar_button)
 	app.reset_avatar.reparent(avatar_row)
 	app.reset_avatar.text="リセット"
+	DesignChrome.style_ghost(app.reset_avatar)
 	settings.add_child(HSeparator.new())
 	settings.add_child(text("参加者",13,MUTED))
 	app.people_label.reparent(settings)
+	app.people_label.add_theme_color_override("font_color", MUTED)
 	app.people_label.max_lines_visible=6
 
 func build_dock() -> void:
@@ -201,7 +198,7 @@ func build_dock() -> void:
 	dock=HBoxContainer.new()
 	dock.add_theme_constant_override("separation",10)
 	holder.add_child(dock)
-	for item in [["sessions","⌂","セッション"],["library","▦","インベントリ"],["workshop","✦","ワークショップ"],["camera","◉","カメラ"],["inspector","▣","インスペクタ"],["settings","⚙","設定"]]:
+	for item in [["sessions","⌂","セッション"],["projects","◇","Projects"],["library","▦","インベントリ"],["workshop","✦","ワークショップ"],["camera","◉","カメラ"],["workspace","▦","Workspace"],["inspector","▣","インスペクタ"],["resources","▤","Resources"],["scripts","⌘","Scripts"],["settings","⚙","設定"]]:
 		var key: String=item[0]
 		var tile := Button.new()
 		tile.text=item[1]+"\n"+item[2]
@@ -209,24 +206,27 @@ func build_dock() -> void:
 		tile.focus_mode=Control.FOCUS_NONE
 		tile.mouse_default_cursor_shape=Control.CURSOR_POINTING_HAND
 		tile.add_theme_font_size_override("font_size",14)
-		tile.add_theme_color_override("font_color",TEXT)
-		tile.add_theme_color_override("font_hover_color",ACCENT)
-		tile.add_theme_stylebox_override("normal",style(INK,5))
-		tile.add_theme_stylebox_override("hover",style(Color("233b47"),5))
-		tile.add_theme_stylebox_override("pressed",style(Color("2b5057"),5))
+		DesignChrome.style_quiet(tile)
+		tile.add_theme_color_override("font_hover_color", ACCENT)
 		tile.pressed.connect(func(): open_dock(key))
 		dock.add_child(tile)
 		dock_buttons[key]=tile
+	dock_buttons.workspace.hide()
 	dock_buttons.inspector.hide()
+	dock_buttons.resources.hide()
+	dock_buttons.scripts.hide()
 	holder.hide()
 
 func refresh_edit_mode() -> void:
 	for key in ["play","edit"]:
 		var active: bool=app.edit_mode == (key=="edit")
 		var tile: Button=edit_mode_buttons[key]
-		tile.add_theme_stylebox_override("normal",style(Color("245750") if active else Color.TRANSPARENT,8))
-		tile.add_theme_color_override("font_color",ACCENT if active else MUTED)
+		DesignChrome.style_quiet(tile, active)
+		tile.add_theme_color_override("font_color", ACCENT if active else MUTED)
+	dock_buttons.workspace.visible=app.edit_mode
 	dock_buttons.inspector.visible=app.edit_mode
+	dock_buttons.resources.visible=app.edit_mode
+	dock_buttons.scripts.visible=app.edit_mode
 
 func set_edit_mode(enabled: bool) -> void:
 	if app.edit_mode==enabled: return
@@ -267,8 +267,14 @@ func set_dock_open(open: bool, animate: bool = true) -> void:
 	dock_tween.finished.connect(func(): if not dock_open: dock_holder.hide())
 
 func open_dock(key: String) -> void:
-	if key=="inspector":
+	if key=="workspace":
+		if app.edit_mode: app.world_panels.open_workspace(true)
+	elif key=="inspector":
 		if app.edit_mode: app.world_panels.pin_target(app.selected_id)
+	elif key=="resources":
+		if app.edit_mode: app.world_panels.open_resources(app.selected_id, true)
+	elif key=="scripts":
+		if app.edit_mode: app.world_panels.open_script_editor(app.selected_id, "", true)
 	elif key=="camera":
 		app.camera_tool.open(app.selected_id)
 	elif key=="settings":
@@ -349,8 +355,8 @@ func choose_action(index: int) -> void:
 		0: app.world_panels.pin_target(ring_target)
 		1: app.world_panels.open_inspector(ring_target)
 		2: open_creation()
-		3: app.choose_image()
-	if index in [1,2]: resume_view()
+		3: app.world_panels.open_resources(ring_target, true)
+	if index in [1,2,3]: resume_view()
 
 func handle_input(event: InputEvent) -> bool:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -386,9 +392,12 @@ func _process(_delta: float) -> void:
 	for request in app.requests.requests.values():
 		busy=busy or request.kind in ["edit","structure","transform","script","playback"]
 	for view in app.world_panels.views():
-		busy=busy or view.edits.values().any(func(edit): return edit.dirty or edit.inflight) or not view.script_view.flight.is_empty()
+		if view.get("edits") is Dictionary:
+			busy=busy or view.edits.values().any(func(edit): return edit is Dictionary and (edit.get("dirty", false) or edit.get("inflight", false)))
+		if view.get("script_view") != null and view.script_view.get("flight") is Dictionary:
+			busy=busy or not view.script_view.flight.is_empty()
 	sync_label.text="● 同期中" if ready and busy else ("● 同期済み" if ready else "● 接続待ち")
-	sync_label.add_theme_color_override("font_color",ACCENT if ready else Color("e9bc70"))
+	sync_label.add_theme_color_override("font_color", DesignChrome.OK if ready else DesignChrome.WARN)
 	sync_label.tooltip_text=app.status_label.text
 	engine_label.text="Engine %d ms" % roundi(app.clock_best_rtt*1000) if app.clock_ready else ""
 	engine_label.tooltip_text="ローカルEngineとの往復時間"

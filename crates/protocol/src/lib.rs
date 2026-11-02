@@ -198,7 +198,15 @@ pub struct ObjectView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creation: Option<CreationView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<ResourcesView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script_editor: Option<ScriptEditorView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<WorkspaceView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world_text: Option<WorldText>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_boundary: Option<crate::ItemBoundary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mirror: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -350,6 +358,21 @@ pub enum StructuralOperation {
         rotation: [f64; 4],
     },
     CreateCreationPanel {
+        position: [f64; 3],
+        rotation: [f64; 4],
+    },
+    CreateResourcesPanel {
+        target: Option<Address>,
+        position: [f64; 3],
+        rotation: [f64; 4],
+    },
+    CreateScriptEditorPanel {
+        target: Option<Address>,
+        script_id: Option<String>,
+        position: [f64; 3],
+        rotation: [f64; 4],
+    },
+    CreateWorkspacePanel {
         position: [f64; 3],
         rotation: [f64; 4],
     },

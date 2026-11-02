@@ -10,6 +10,10 @@ mod management;
 mod media_clock;
 mod persistence;
 mod previews;
+mod projects;
+mod project_resources;
+mod project_vcs;
+mod project_server;
 mod state_rules;
 use kokoverse_core::{WorldModel, replication::REGISTRY};
 use kokoverse_protocol::{
@@ -89,6 +93,8 @@ struct Engine {
     service: Option<management::Service>,
     service_user: Value,
     active_session: Option<Value>,
+    /// Local project slug whose world.json is auto-saved when the session ends.
+    active_project: Option<String>,
     service_generation: u64,
     service_jobs: usize,
     transport_ready: bool,
@@ -140,8 +146,28 @@ struct Engine {
 
 impl Engine {
     fn service_state(&self) -> Value {
+        let project = self.active_project.as_ref().map(|slug| {
+            let actor = self.service_user["id"].as_str().unwrap_or("");
+            let name = self.service_user["name"].as_str().unwrap_or(actor);
+            if let Some(service) = self.service.as_ref() {
+                let _ = crate::project_vcs::bind_host(&service.data_root, slug, actor, name);
+                if let Ok(detail) = crate::projects::get_for(&service.data_root, slug, actor) {
+                    return detail;
+                }
+            }
+            let my_role = if actor.is_empty() {
+                "view".to_string()
+            } else if let Some(service) = self.service.as_ref() {
+                crate::project_vcs::role_of(&service.data_root, slug, actor)
+                    .unwrap_or_else(|_| "view".into())
+            } else {
+                "view".into()
+            };
+            json!({"slug": slug, "local": true, "my_role": my_role})
+        });
         json!({"kind":"service_state","enabled":self.service.is_some(),"user":self.service_user,
-            "session":self.active_session.as_ref().map(|s|json!({"id":s["session"]["id"],"name":s["session"]["name"],"host":s["host"]}))})
+            "session":self.active_session.as_ref().map(|s|json!({"id":s["session"]["id"],"name":s["session"]["name"],"host":s["host"]})),
+            "project":project})
     }
     fn start_service_job(
         &mut self,
@@ -1360,6 +1386,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         service,
         service_user,
         active_session: None,
+        active_project: None,
         service_generation: 0,
         service_jobs: 0,
         transport_ready: false,
@@ -1553,13 +1580,32 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         if managed && value["body"]["kind"]=="service" {
                             let mut body=value["body"].clone();let request=body["request_id"].as_str().unwrap_or("").to_string();let action=body["action"].as_str().unwrap_or("").to_string();
                             let prepare=(||->Result<(),String>{
-                                if matches!(action.as_str(),"login"|"create_session"|"join_session"|"import_profile") && engine.active_session.is_some(){return Err("Leave the current session first".into());}
+                                if matches!(action.as_str(),"login"|"create_session"|"join_session"|"import_profile"|"open_project_workspace") && engine.active_session.is_some(){return Err("Leave the current session first".into());}
                                 if action=="save_item" {
                                     let target:kokoverse_protocol::Address=serde_json::from_value(body["target"].clone()).map_err(|_|"Select an item")?;
                                     let object=engine.model.snapshot().objects.into_iter().find(|o|o.address==target).ok_or("Selected object no longer exists")?;
                                     body["object"]=json!(object);
                                 }
                                 if action=="place_item" {let active=engine.active_session.as_ref().ok_or("Join a session first")?;body["session_id"]=active["session"]["id"].clone();body["ticket"]=active["ticket"].clone();}
+                                // Project VCS: stamp the signed-in actor and flush the live world before commit/status.
+                                if action.starts_with("project") || action == "create_project" || action == "projects" {
+                                    if let Some(uid)=engine.service_user["id"].as_str() {
+                                        body["actor_id"]=json!(uid);
+                                        if body["author"].as_str().unwrap_or("").is_empty() {
+                                            body["author"]=json!(engine.service_user["name"].as_str().unwrap_or(uid));
+                                        }
+                                        if body["actor_name"].as_str().unwrap_or("").is_empty() {
+                                            body["actor_name"]=json!(engine.service_user["name"].as_str().unwrap_or(uid));
+                                        }
+                                    }
+                                }
+                                if matches!(action.as_str(),"project_commit"|"project_working_status"|"project_revert"|"project_checkout"|"project_branch_switch"|"project_branch_merge_main") {
+                                    let slug=body["slug"].as_str().unwrap_or("");
+                                    if !slug.is_empty() && engine.active_project.as_deref()==Some(slug) {
+                                        let service=engine.service.as_ref().ok_or("Services unavailable")?;
+                                        crate::projects::save_world(&service.data_root, slug, &engine.model.snapshot())?;
+                                    }
+                                }
                                 Ok(())
                             })();
                             if let Err(message)=prepare {engine.reply(Origin::Local(id),json!({"kind":"service_result","action":action,"request_id":request,"ok":false,"message":message}));}
@@ -1601,6 +1647,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                     model.restore(snapshot)?;
                                 }
                                 if let Some(mut old)=managed_child.take(){let _=old.kill().await;let _=old.wait().await;}
+                                engine.active_project=info["project_slug"].as_str().map(str::to_owned);
+                                if let Some(slug)=engine.active_project.clone() {
+                                    if let (Some(uid), Some(service))=(engine.service_user["id"].as_str(), engine.service.as_ref()) {
+                                        let name=engine.service_user["name"].as_str().unwrap_or(uid);
+                                        if let Err(error)=crate::project_vcs::bind_host(&service.data_root, &slug, uid, name) {
+                                            eprintln!("Project host bind failed: {error}");
+                                        }
+                                    }
+                                }
                                 engine.active_session=Some(info.clone());engine.reset_managed_world(session.clone(),host,info["session"]["host_peer"].as_str().unwrap().into(),model);
                                 persistence=persistence::Persistence::new(if host{Some(save)}else{None});
                                 let relay=info["session"]["relay"].as_str().ok_or("Invalid relay")?;
@@ -1612,6 +1667,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                             },
                             management::Effect::Leave=>{
                                 if engine.host {persistence.flush(engine.model.snapshot()).await?;}
+                                if let (Some(slug), Some(service)) = (engine.active_project.take(), engine.service.as_ref()) {
+                                    if let Err(error) = projects::save_world(&service.data_root, &slug, &engine.model.snapshot()) {
+                                        eprintln!("Project autosave failed: {error}");
+                                    }
+                                }
                                 if let Some(active)=engine.active_session.take() && active["host"]==true {let client=engine.service.as_ref().unwrap().client().await?;let _=client.rpc(json!({"action":"end_session","session_id":active["session"]["id"]})).await;}
                                 if let Some(mut child)=managed_child.take(){let _=child.kill().await;let _=child.wait().await;}
                                 if let Some(adapter)=engine.adapter.take(){engine.clients.remove(&adapter);}
@@ -1651,7 +1711,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     }.await;
                     if id!=0 {match handled{Ok(data)=>engine.reply(Origin::Local(id),json!({"kind":"service_result","request_id":request,"action":operation,"ok":true,"data":data})),Err(message)=>engine.reply(Origin::Local(id),json!({"kind":"service_result","request_id":request,"action":operation,"ok":false,"message":message}))};}
                     else if let Err(message)=handled {eprintln!("Managed {operation}: {message}");}
-                    if matches!(operation.as_str(),"login"|"import_profile"|"create_session"|"join_session"|"leave_session"){engine.ui(engine.service_state());engine.publish_state();}
+                    if matches!(operation.as_str(),"login"|"import_profile"|"create_session"|"join_session"|"leave_session"|"open_project_workspace"|"create_project"|"projects"|"project"){engine.ui(engine.service_state());engine.publish_state();}
                 },
                 Some(Event::Closed(id)) => {
                     engine.edit_sessions.forget(&format!("local-{id}"));
@@ -1679,6 +1739,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     if engine.host {
         persistence.flush(engine.model.snapshot()).await?;
         eprintln!("World saved.");
+    }
+    if let (Some(slug), Some(service)) = (engine.active_project.take(), engine.service.as_ref()) {
+        if let Err(error) = projects::save_world(&service.data_root, &slug, &engine.model.snapshot()) {
+            eprintln!("Project autosave failed: {error}");
+        } else {
+            eprintln!("Project saved.");
+        }
     }
     if let Some(active) = engine.active_session.take()
         && active["host"] == true

@@ -140,8 +140,20 @@ pub(crate) fn insert_object(world: &mut World, object: ObjectView) {
     if let Some(creation) = object.creation.clone() {
         world.entity_mut(slot).insert(CreationView(creation));
     }
+    if let Some(resources) = object.resources.clone() {
+        world.entity_mut(slot).insert(ResourcesView(resources));
+    }
+    if let Some(script_editor) = object.script_editor.clone() {
+        world.entity_mut(slot).insert(ScriptEditorView(script_editor));
+    }
+    if let Some(workspace) = object.workspace.clone() {
+        world.entity_mut(slot).insert(WorkspaceView(workspace));
+    }
     if let Some(world_text) = object.world_text.clone() {
         world.entity_mut(slot).insert(WorldText(world_text));
+    }
+    if let Some(boundary) = object.item_boundary.clone() {
+        world.entity_mut(slot).insert(ItemBoundary(boundary));
     }
     if let Some(enabled) = object.mirror {
         world.entity_mut(slot).insert(Mirror(enabled));

@@ -13,7 +13,9 @@ if (Test-Path -LiteralPath $recordPath) {
         $p = Get-Process -Id $_.id -ErrorAction SilentlyContinue
         $p -and $p.Path -eq $_.path -and $p.StartTime.ToUniversalTime().Ticks.ToString() -eq $_.startTicks
     })
-    if ($live | Where-Object { [IO.Path]::GetFileName($_.path) -eq 'kokoverse-engine.exe' }) {
+    $engineLive = @($live | Where-Object { [IO.Path]::GetFileName($_.path) -eq 'kokoverse-engine.exe' })
+    $frontendLive = @($live | Where-Object { [IO.Path]::GetFileName($_.path) -like 'Godot_*.exe' })
+    if ($engineLive) {
         $client = New-Object Net.Sockets.TcpClient
         try {
             if (-not $client.ConnectAsync('127.0.0.1',[int]$records.ui_port).Wait(5000)) { throw 'Engine connection timed out.' }
@@ -33,7 +35,14 @@ if (Test-Path -LiteralPath $recordPath) {
             $data=[Text.Encoding]::UTF8.GetBytes($payload);$header=[BitConverter]::GetBytes([Net.IPAddress]::HostToNetworkOrder($data.Length));$stream.Write($header,0,4);$stream.Write($data,0,$data.Length)
             do { $result=Read-LocalFrame } until ($result.body.kind -eq 'service_result' -and $result.body.request_id -eq $requestId)
             if (-not $result.body.ok) { throw $result.body.message }
-        } catch { throw "The application was left running because save/leave failed: $_" } finally { $client.Close() }
+        } catch {
+            # Godot already gone and Engine wedged: force-stop so Start is not permanently blocked.
+            if ($frontendLive.Count -eq 0) {
+                Write-Warning "save/leave failed with no live Godot ($_). Force-stopping the orphaned Engine."
+            } else {
+                throw "The application was left running because save/leave failed: $_"
+            }
+        } finally { $client.Close() }
     }
     foreach ($record in $records.processes) { Stop-OwnedProcess $record }
     Remove-Item -LiteralPath $recordPath

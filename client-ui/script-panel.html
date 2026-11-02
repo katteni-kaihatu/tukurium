@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>tukurium script panel</title>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="vendor/cm5.css">
+  <style>
+    html, body {
+      width: 1120px;
+      height: 960px;
+      margin: 0;
+      background: #fffdf9;
+      color: #26262e;
+    }
+    body.panel-mode .script-shell,
+    body.panel-mode .script-shell.panel-shell {
+      position: absolute;
+      inset: 0;
+      left: 0;
+      top: 0;
+      width: 1120px;
+      height: 960px;
+      max-width: none;
+      max-height: none;
+      border-radius: 0;
+      box-shadow: none;
+      background: #fffdf9;
+      border: 0;
+      z-index: 0;
+      overflow: hidden;
+    }
+    body.panel-mode #mount {
+      position: absolute;
+      inset: 0;
+      width: 1120px;
+      height: 960px;
+    }
+    body.panel-mode .whead {
+      background: #fffdf9;
+      border-bottom: 1px solid #e7e1d6;
+    }
+  </style>
+</head>
+<body class="panel-mode">
+  <div id="mount"></div>
+  <script src="vendor/cm5.min.js"></script>
+  <script src="vendor/cm5-lua.js"></script>
+  <script src="script-graph-ui.js"></script>
+  <script src="script-editor.js"></script>
+  <script src="script-panel.js"></script>
+</body>
+</html>

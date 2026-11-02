@@ -20,6 +20,19 @@ SubViewportの役割は [Godot公式ドキュメント](https://docs.godotengine
 実装の入口は [world_panel.gd](../client-godot/world_panel.gd)、生成・入力の管理は [world_panels.gd](../client-godot/world_panels.gd)。
 Rust側は [panels.rs](../crates/core/src/panels.rs) と [Component登録表](../crates/core/src/replication.rs) を参照する。
 
+### content スクリプトの契約
+
+GDScript にインターフェース型が無いため、閉じる・フォーカス解除・毎フレーム更新は実行時のメソッド呼び出しになる。新しい content を `world_panel.gd` に足すときは、少なくとも次を実装する（空実装可）。
+
+| メソッド / 状態 | 必須 | 呼ばれる場面 |
+|---|---|---|
+| `finish_all()` | すべて | `clear_focus` / パネル削除 |
+| `has_active_edits()` | すべて | 閉じ待ち |
+| `disconnected()` | すべて | 切断 |
+| `tick()` / `edits` | Script をホストする板 | `world_panels.tick` / HUD 同期表示 |
+
+ヘッドレスで [panel_content_contract_smoke.gd](../client-godot/panel_content_contract_smoke.gd) を回し、欠けを CI・手元で検知する。通常の parse チェックだけでは足りない。
+
 ## FPSの視点操作をパネルに奪わせない
 
 | 入力 | 動作 |

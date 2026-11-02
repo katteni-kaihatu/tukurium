@@ -96,6 +96,41 @@ func choose_files() -> void:
 	add_child(dialog)
 	dialog.popup_centered_ratio(0.7)
 
+## Prepare images / GLB / FBX for the Resources catalog without placing a Slot.
+## on_done receives (ok: bool, payload: Dictionary, message: String).
+## payload for images: {kind,data_url,width,height,bytes,ext,name}
+## payload for models: {kind,asset_id,half_extents,bytes,ext,name}
+func import_to_catalog(path: String, on_done: Callable) -> void:
+	enqueue_job({"path":path,"purpose":"catalog","on_catalog":on_done,"point":Vector3.ZERO})
+
+func choose_catalog_files(kinds: PackedStringArray, on_paths: Callable) -> void:
+	var dialog := FileDialog.new()
+	dialog.title = tr("Import into Resources")
+	dialog.access = FileDialog.ACCESS_FILESYSTEM
+	dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILES
+	dialog.filters = kinds
+	dialog.use_native_dialog = true
+	dialog.files_selected.connect(func(paths): on_paths.call(paths); dialog.queue_free())
+	dialog.canceled.connect(dialog.queue_free)
+	add_child(dialog)
+	dialog.popup_centered_ratio(0.7)
+
+func place_visual(visual: Dictionary, name: String, half_height: float = 0.75) -> void:
+	if not editor.editable: return
+	var point: Vector3 = editor.player_target_position - editor.camera.global_basis.z * 3.0
+	point.y = maxf(point.y, half_height + 0.02)
+	var rotation := Quaternion.IDENTITY
+	if visual.get("kind","") in ["image","video"]:
+		rotation = Quaternion(Vector3.UP, editor.camera.rotation.y)
+	editor.requests.request({"kind":"structure","command":{"action":"import_asset","name":name.substr(0,80),"position":[point.x,point.y,point.z],"rotation":[rotation.x,rotation.y,rotation.z,rotation.w],"visual":visual}}, func(body):
+		if body.get("ok", false):
+			var selected: Dictionary = body.get("selected", {})
+			if not selected.is_empty(): editor.select_object(selected.instance_id)
+			AppLanguage.format_text(editor.feedback,"Placed %s",[name])
+		else:
+			editor.feedback.text = str(body.get("message", "Could not place resource"))
+	)
+
 func drop_files(paths: PackedStringArray) -> void:
 	if not editor.editable:
 		editor.feedback.text = "Connect to the world before importing."
@@ -134,13 +169,17 @@ func _process(delta: float) -> void:
 
 func fail(message: String, values: Array = []) -> void:
 	printerr("Asset import: "+(message % values if not values.is_empty() else message))
+	var done: Callable = Callable()
 	if not active.is_empty():
+		done = active.get("on_catalog", Callable())
 		if active.has("video_pid") and OS.is_process_running(active.video_pid): OS.kill(active.video_pid)
 		editor.asset_status.update(str(active.task),"error",0,0,message,"",values)
 		active.clear()
 		editor.pending = false
 		editor.pending_action = ""
+	var text := message % values if not values.is_empty() else message
 	AppLanguage.format_text(editor.feedback,message,values)
+	if done.is_valid(): done.call(false, {}, text)
 
 func start_import(job: Dictionary) -> void:
 	active = job
@@ -151,6 +190,7 @@ func start_import(job: Dictionary) -> void:
 	editor.pending = true
 	editor.pending_action = "import_asset"
 	if job.get("purpose","")=="avatar": start_avatar_texture(str(job.path)); return
+	var catalog: bool = str(job.get("purpose", "")) == "catalog"
 	var extension: String = str(job.path).get_extension().to_lower()
 	if extension in ["png","jpg","jpeg","webp"]:
 		var img := Image.load_from_file(job.path)
@@ -166,8 +206,15 @@ func start_import(job: Dictionary) -> void:
 		var ratio := float(img.get_width()) / img.get_height()
 		var half := Vector3(1.0,1.0/ratio,0.03) if ratio >= 1.0 else Vector3(ratio,1.0,0.03)
 		var prefix := "data:image/png;base64," if png else "data:image/jpeg;base64,"
-		commit_import({"kind":"image","data_url":prefix+Marshalls.raw_to_base64(data),"width":img.get_width(),"height":img.get_height()},half.y)
+		var visual := {"kind":"image","data_url":prefix+Marshalls.raw_to_base64(data),"width":img.get_width(),"height":img.get_height()}
+		if catalog:
+			finish_catalog({"kind":"image","data_url":visual.data_url,"width":img.get_width(),"height":img.get_height(),"bytes":data,"ext":("png" if png else "jpg"),"name":str(job.path).get_file().get_basename(),"half_height":half.y})
+		else:
+			commit_import(visual,half.y)
 	elif extension in ["glb","fbx"]:
+		if catalog and extension == "fbx":
+			# Catalog keeps a GLB on disk; convert first.
+			pass
 		var file := FileAccess.open(job.path,FileAccess.READ)
 		if file == null: fail("Could not open model file."); return
 		if file.get_length() > MAX_SOURCE: fail("Model import limit is 100 MiB per file."); return
@@ -176,6 +223,7 @@ func start_import(job: Dictionary) -> void:
 		prepare_thread = Thread.new()
 		prepare_thread.start(prepare_model.bind(str(job.path),extension))
 	elif extension in ["mp4","mov","webm","mkv","avi","ogv"]:
+		if catalog: fail("Video catalog entries are not supported yet."); return
 		start_video_conversion(str(job.path))
 	else: fail("Supported files: images, GLB, FBX and videos.")
 
@@ -204,9 +252,24 @@ func upload_model(data: PackedByteArray) -> void:
 	if active.get("task","") != task: return
 	var id := hash_bytes(data)
 	if not templates.has(id) and not build_template(id,data): fail("No renderable mesh found in this model."); return
-	start_upload(id,data,"glb")
 	var half: Array = templates[id].half
+	if active.get("purpose","") == "catalog":
+		active.catalog_payload = {"kind":"model","asset_id":id,"half_extents":half,"bytes":data,"ext":"glb","name":str(active.path).get_file().get_basename(),"half_height":float(half[1])}
+		start_upload(id,data,"glb")
+		return
+	start_upload(id,data,"glb")
 	commit_import({"kind":"model","asset_id":id,"half_extents":half},half[1])
+
+func finish_catalog(payload: Dictionary) -> void:
+	var done: Callable = active.get("on_catalog", Callable())
+	import_status("ready")
+	active.clear()
+	editor.pending = false
+	editor.pending_action = ""
+	if done.is_valid():
+		done.call(true, payload, "")
+	else:
+		editor.feedback.text = "Resource prepared."
 
 func hash_bytes(data: PackedByteArray) -> String:
 	var hash := HashingContext.new()
@@ -365,6 +428,9 @@ func receive(body: Dictionary) -> void:
 			editor.pending = false
 			editor.pending_action = ""
 			editor.feedback.text = "Avatar texture shared."
+		elif active.get("purpose","") == "catalog" and active.has("catalog_payload"):
+			active.upload_complete = true
+			finish_catalog(active.catalog_payload)
 		else:
 			active.upload_complete = true
 			finish_import()
