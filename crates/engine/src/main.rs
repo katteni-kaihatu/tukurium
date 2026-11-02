@@ -12,6 +12,8 @@ mod persistence;
 mod previews;
 mod projects;
 mod project_resources;
+mod project_vcs;
+mod project_server;
 mod state_rules;
 use kokoverse_core::{WorldModel, replication::REGISTRY};
 use kokoverse_protocol::{
@@ -144,9 +146,28 @@ struct Engine {
 
 impl Engine {
     fn service_state(&self) -> Value {
+        let project = self.active_project.as_ref().map(|slug| {
+            let actor = self.service_user["id"].as_str().unwrap_or("");
+            let name = self.service_user["name"].as_str().unwrap_or(actor);
+            if let Some(service) = self.service.as_ref() {
+                let _ = crate::project_vcs::bind_host(&service.data_root, slug, actor, name);
+                if let Ok(detail) = crate::projects::get_for(&service.data_root, slug, actor) {
+                    return detail;
+                }
+            }
+            let my_role = if actor.is_empty() {
+                "view".to_string()
+            } else if let Some(service) = self.service.as_ref() {
+                crate::project_vcs::role_of(&service.data_root, slug, actor)
+                    .unwrap_or_else(|_| "view".into())
+            } else {
+                "view".into()
+            };
+            json!({"slug": slug, "local": true, "my_role": my_role})
+        });
         json!({"kind":"service_state","enabled":self.service.is_some(),"user":self.service_user,
             "session":self.active_session.as_ref().map(|s|json!({"id":s["session"]["id"],"name":s["session"]["name"],"host":s["host"]})),
-            "project":self.active_project.as_ref().map(|slug|json!({"slug":slug,"local":true}))})
+            "project":project})
     }
     fn start_service_job(
         &mut self,
@@ -1566,6 +1587,25 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                     body["object"]=json!(object);
                                 }
                                 if action=="place_item" {let active=engine.active_session.as_ref().ok_or("Join a session first")?;body["session_id"]=active["session"]["id"].clone();body["ticket"]=active["ticket"].clone();}
+                                // Project VCS: stamp the signed-in actor and flush the live world before commit/status.
+                                if action.starts_with("project") || action == "create_project" || action == "projects" {
+                                    if let Some(uid)=engine.service_user["id"].as_str() {
+                                        body["actor_id"]=json!(uid);
+                                        if body["author"].as_str().unwrap_or("").is_empty() {
+                                            body["author"]=json!(engine.service_user["name"].as_str().unwrap_or(uid));
+                                        }
+                                        if body["actor_name"].as_str().unwrap_or("").is_empty() {
+                                            body["actor_name"]=json!(engine.service_user["name"].as_str().unwrap_or(uid));
+                                        }
+                                    }
+                                }
+                                if matches!(action.as_str(),"project_commit"|"project_working_status"|"project_revert"|"project_checkout"|"project_branch_switch"|"project_branch_merge_main") {
+                                    let slug=body["slug"].as_str().unwrap_or("");
+                                    if !slug.is_empty() && engine.active_project.as_deref()==Some(slug) {
+                                        let service=engine.service.as_ref().ok_or("Services unavailable")?;
+                                        crate::projects::save_world(&service.data_root, slug, &engine.model.snapshot())?;
+                                    }
+                                }
                                 Ok(())
                             })();
                             if let Err(message)=prepare {engine.reply(Origin::Local(id),json!({"kind":"service_result","action":action,"request_id":request,"ok":false,"message":message}));}
@@ -1608,6 +1648,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 if let Some(mut old)=managed_child.take(){let _=old.kill().await;let _=old.wait().await;}
                                 engine.active_project=info["project_slug"].as_str().map(str::to_owned);
+                                if let Some(slug)=engine.active_project.clone() {
+                                    if let (Some(uid), Some(service))=(engine.service_user["id"].as_str(), engine.service.as_ref()) {
+                                        let name=engine.service_user["name"].as_str().unwrap_or(uid);
+                                        if let Err(error)=crate::project_vcs::bind_host(&service.data_root, &slug, uid, name) {
+                                            eprintln!("Project host bind failed: {error}");
+                                        }
+                                    }
+                                }
                                 engine.active_session=Some(info.clone());engine.reset_managed_world(session.clone(),host,info["session"]["host_peer"].as_str().unwrap().into(),model);
                                 persistence=persistence::Persistence::new(if host{Some(save)}else{None});
                                 let relay=info["session"]["relay"].as_str().ok_or("Invalid relay")?;

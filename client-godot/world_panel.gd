@@ -148,8 +148,10 @@ func leave_pointer() -> void:
 	forward_pointer(event, Vector2(-1000, -1000))
 
 func clear_focus() -> void:
-	viewport.gui_release_focus()
-	content.finish_all()
+	if is_instance_valid(viewport):
+		viewport.gui_release_focus()
+	if is_instance_valid(content) and content.has_method("finish_all"):
+		content.finish_all()
 
 func has_text_focus() -> bool:
 	if using_html: return false

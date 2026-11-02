@@ -341,6 +341,26 @@ func handle(message: Dictionary) -> void:
 					if panel.is_empty() or not app.objects.has(panel): return
 					var address: Variant = app.address_of(app.objects[target]) if app.objects.has(target) else null
 					app.world_panels.edit(panel, "inspector_target", address, func(_r): push(true); push_panel(true))
+				"duplicate", "delete":
+					var target := str(message.get("target", ""))
+					if target.is_empty() or not app.objects.has(target) or not app.editable or not app.edit_mode: return
+					var object: Dictionary = app.objects[target]
+					var action: String = str(message.get("name", ""))
+					app.world_panels.command({"kind":"structure","command":{"action":action,"target":app.address_of(object),"expected_revision":object.object_revision}}, func(result):
+						if result.ok and action == "duplicate" and result.get("selected") is Dictionary:
+							var selected: Dictionary = result.selected
+							var panel := str(message.get("panel", ""))
+							if not panel.is_empty() and app.objects.has(panel):
+								app.world_panels.edit(panel, "inspector_target", selected, func(_r): push(true); push_panel(true))
+							app.select_object(str(selected.get("instance_id", "")))
+						elif result.ok and action == "delete":
+							app.select_object("")
+							push(true)
+							push_panel(true)
+						elif not result.ok:
+							notice = str(result.get("message", "操作に失敗しました"))
+							push(true)
+					)
 				"component":
 					change_component(message)
 				"playback":
@@ -534,7 +554,9 @@ func inspector_model(panel_id: String, mode: String) -> Dictionary:
 		"panelId": panel_id,
 		"rect": screen.get("rect", []),
 		"title": "Inspector",
-		"editable": app.editable,
+		"editable": app.editable and app.edit_mode,
+		"editMode": app.edit_mode,
+		"playLocked": app.editable and not app.edit_mode,
 		"target": target,
 		"message": notice,
 		"objects": object_list(),
@@ -545,6 +567,9 @@ func inspector_model(panel_id: String, mode: String) -> Dictionary:
 		"scripts": [],
 		"isPanelTarget": false,
 		"tab": "object",
+		"systems": [],
+		"kokostate": [],
+		"prefabEditing": false,
 	}
 	if target.is_empty() or not app.objects.has(target):
 		return model
@@ -553,7 +578,19 @@ func inspector_model(panel_id: String, mode: String) -> Dictionary:
 	model.sections = sections_for(target)
 	model.catalog = catalog_for(target)
 	model.scripts = scripts_for(target)
+	var boundary = app.objects[target].get("item_boundary", null)
+	model.prefabEditing = boundary is Dictionary and bool(boundary.get("editing_prefab", false))
+	model.kokostate = kokostate_for(target)
+	model.systems = systems_for(target)
 	return model
+
+func kokostate_for(_id: String) -> Array:
+	# Definitions live in Resources (kind=kokostate). Attachments land in Phase 6 Engine query.
+	return []
+
+func systems_for(_id: String) -> Array:
+	# Read-only Systems matching is filled when KokoState queries exist.
+	return []
 
 func object_list() -> Array:
 	var list := []
@@ -632,11 +669,27 @@ func sections_for(id: String) -> Array:
 				removable = true
 		sections.append({
 			"name": type_id,
+			"heading": section_heading(type_id),
 			"fields": grouped[component],
 			"removable": removable,
 			"removeDisabled": type_id == "MeshRenderer" and (object.get("panel") != null or object.get("playback") != null or object.get("mirror") != null or object.get("planar_motion") != null or not object.get("scripts", []).is_empty()),
 		})
 	return sections
+
+func section_heading(type_id: String) -> String:
+	match type_id:
+		"Slot", "ObjectRoot", "LocalTransform", "Identity":
+			return "Built-in · %s" % type_id
+		"MeshRenderer":
+			return "Mesh"
+		"Collider":
+			return "Built-in · Collider"
+		_:
+			if type_id.to_lower().contains("material") or type_id == "color":
+				return "Material · %s" % type_id
+			if type_id.begins_with("KokoState") or type_id == "ItemBoundary":
+				return type_id
+			return type_id
 
 func field_view(id: String, field: Dictionary) -> Dictionary:
 	var type := str(field.get("value_type", ""))

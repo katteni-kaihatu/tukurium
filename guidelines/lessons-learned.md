@@ -21,6 +21,13 @@
 
 - コード：[workspace_view.gd](../client-godot/workspace_view.gd)、[world_panels.gd](../client-godot/world_panels.gd)、[panels.rs](../crates/core/src/panels.rs)。確認日：2026-11-01。
 
+## WorldPanel の content は `finish_all` / `tick` を揃える
+
+スナップショット削除で `render_nodes` が `queue_free` されたあと、`world_panels.sync` と `clear_focus` が content の `finish_all` を呼ぶ。`workspace_view` にこれが無いと SCRIPT ERROR が連発し、辞書に残った解放済みパネルへ `has_text_focus` すると signal 11 で落ちる。新しい板 content には少なくとも `finish_all`（空でも可）を置き、Script 系は `tick` と空の `edits` も揃える。`text_focused` / `sync` は `is_instance_valid` で守る。
+
+- 再現：Workspace を閉じて移動入力が走る。ログに `finish_all` → `previously freed` → `CrashHandlerException signal 11`。
+- コード：[workspace_view.gd](../client-godot/workspace_view.gd)、[script_editor_view.gd](../client-godot/script_editor_view.gd)、[world_panels.gd](../client-godot/world_panels.gd)。確認日：2026-11-02。
+
 ## HTML Script Editor のプレゼンス心拍は実キャレットを送る
 
 `html_script_session` の 1.5 秒心拍が `set_cursor(draft_text.length())` だと、同期が落ち着いた直後に共有カーソルが常にファイル末尾へ飛ぶ。心拍は直近の `script_cursor` オフセットを再送し、編集フライト中もオフセットは記憶する。表示側は自分の `client_id` のマークを描かない（Godot `script_carets` と同じ）。

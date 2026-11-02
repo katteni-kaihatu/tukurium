@@ -152,6 +152,9 @@ pub(crate) fn insert_object(world: &mut World, object: ObjectView) {
     if let Some(world_text) = object.world_text.clone() {
         world.entity_mut(slot).insert(WorldText(world_text));
     }
+    if let Some(boundary) = object.item_boundary.clone() {
+        world.entity_mut(slot).insert(ItemBoundary(boundary));
+    }
     if let Some(enabled) = object.mirror {
         world.entity_mut(slot).insert(Mirror(enabled));
     }

@@ -54,6 +54,10 @@ fn remove_world_text(object: &mut ObjectView) -> Result<(), String> {
     object.world_text = None;
     Ok(())
 }
+fn remove_item_boundary(object: &mut ObjectView) -> Result<(), String> {
+    object.item_boundary = None;
+    Ok(())
+}
 fn remove_mirror(object: &mut ObjectView) -> Result<(), String> {
     object.mirror = None;
     Ok(())
@@ -234,6 +238,7 @@ pub static REGISTRY: LazyLock<Registry> = LazyLock::new(|| Registry {
     attachments: vec![
         AttachmentRegistration { type_id: "MeshRenderer", remove: remove_mesh, defaults: || json!({"color":[0.2,0.65,0.8,1.0],"visual":{"kind":"primitive","shape":"quad"}}) },
         AttachmentRegistration { type_id: "WorldText", remove: remove_world_text, defaults: || json!({"world_text":"Text","world_text_color":[1.0,1.0,1.0,1.0]}) },
+        AttachmentRegistration { type_id: "ItemBoundary", remove: remove_item_boundary, defaults: || json!({"item_boundary_prefab_key":"","item_boundary_editing":false}) },
         AttachmentRegistration { type_id: "Mirror", remove: remove_mirror, defaults: || json!({"mirror_enabled":true}) },
         AttachmentRegistration { type_id: "Camera", remove: remove_camera, defaults: || json!({"camera_enabled":true}) },
         AttachmentRegistration { type_id: "ValueNumber", remove: remove_value_number, defaults: || json!({"value_number":0.0}) },
@@ -545,6 +550,41 @@ pub static REGISTRY: LazyLock<Registry> = LazyLock::new(|| Registry {
                 match id {
                     "world_text" => text.0.text = parse(&v).unwrap(),
                     "world_text_color" => text.0.color = parse(&v).unwrap(),
+                    _ => unreachable!(),
+                }
+            },
+        },
+        ComponentRegistration {
+            type_id: "ItemBoundary",
+            local_id: 23,
+            fields: vec![
+                editable("item_boundary_prefab_key", "Prefab key", "string", 34, |v| {
+                    let s: String = parse(v)?;
+                    if s.len() > 120 { return Err("Prefab key too long".into()); }
+                    Ok(())
+                }),
+                editable("item_boundary_editing", "Editing prefab", "bool", 35, boolean),
+            ],
+            present: |o| o.item_boundary.is_some(),
+            project: |o| {
+                let b = o.item_boundary.as_ref().unwrap();
+                json!({
+                    "item_boundary_prefab_key": b.prefab_key,
+                    "item_boundary_editing": b.editing_prefab,
+                })
+            },
+            restore: |o, v| {
+                o.item_boundary = Some(kokoverse_protocol::ItemBoundary {
+                    prefab_key: parse(&v["item_boundary_prefab_key"])?,
+                    editing_prefab: parse(&v["item_boundary_editing"])?,
+                });
+                Ok(())
+            },
+            apply: |w, e, id, v| {
+                let mut boundary = w.get_mut::<crate::components::ItemBoundary>(e).unwrap();
+                match id {
+                    "item_boundary_prefab_key" => boundary.0.prefab_key = parse(&v).unwrap(),
+                    "item_boundary_editing" => boundary.0.editing_prefab = parse(&v).unwrap(),
                     _ => unreachable!(),
                 }
             },

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use crate::projects::{meta_path, project_dir, read_display_name, validate_slug};
 
 const ROOT_ID: &str = "r0";
-const KINDS: &[&str] = &["folder", "model", "material", "image", "script"];
+const KINDS: &[&str] = &["folder", "model", "material", "image", "script", "shader", "package", "kokostate"];
 
 fn workspace_root(data_root: &Path) -> PathBuf {
     data_root.join("workspace-resources")

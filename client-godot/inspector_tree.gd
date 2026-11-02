@@ -87,6 +87,14 @@ func setup(view) -> void:
 			manager.command({"kind":"structure","command":{"action":"duplicate","target":manager.app.address_of(object),"expected_revision":object.object_revision}},func(result):
 				if result.ok: inspector.choose_target(result.selected.instance_id)
 				else: inspector.message.text = result.get("message","Could not duplicate")))
+	view.add_button(self,"Delete",func():
+		var object: Dictionary = manager.app.objects.get(view.target_id,{})
+		if object.is_empty(): return
+		manager.command({"kind":"structure","command":{"action":"delete","target":manager.app.address_of(object),"expected_revision":object.object_revision}},func(result):
+			if result.ok:
+				inspector.choose_target("")
+				manager.app.select_object("")
+			else: inspector.message.text = result.get("message","Could not delete")))
 
 func set_root(address: Variant) -> void:
 	var next := tree_state.duplicate(true)

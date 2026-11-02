@@ -17,6 +17,9 @@ const RK := {
 	"material": {"label": "Material", "bg": Color("f4f1ea"), "fg": Color("9a4a16")},
 	"image": {"label": "Texture", "bg": Color("e5f3ec"), "fg": Color("1f6b47")},
 	"script": {"label": "Script", "bg": Color("e3e7f6"), "fg": Color("2f4a9c")},
+	"shader": {"label": "Shader", "bg": Color("efe6f4"), "fg": Color("603d56")},
+	"package": {"label": "Package", "bg": Color("e8efe8"), "fg": Color("2f6b4a")},
+	"kokostate": {"label": "KokoState", "bg": Color("f4f1ea"), "fg": Color("9a4a16")},
 }
 var manager
 var panel_id := ""
@@ -247,6 +250,9 @@ func _build_new_menu_overlay() -> void:
 	_menu_item(menu, "folder", "Import file…", "画像またはモデルを選ぶ", func(): import_external(["*.png,*.jpg,*.jpeg,*.webp ; Images", "*.glb,*.fbx ; 3D models"]))
 	_menu_item(menu, "script", "Script (Lua)", "選択中 Slot へ空の Script を付ける", attach_blank)
 	_menu_item(menu, "script", "Node graph", "選択中 Slot へノードグラフを付ける", attach_graph)
+	_menu_item(menu, "kokostate", "KokoState", "タグ／フィールド定義（仮想ファイル）", create_kokostate)
+	_menu_item(menu, "shader", "Shader", "シェーダ定義の枠（描画接続は後続）", create_shader)
+	_menu_item(menu, "package", "Package", "パッケージ参照メタ", create_package)
 
 func _tree_pane() -> Control:
 	var wrap := PanelContainer.new()
@@ -357,7 +363,7 @@ func _footer() -> Control:
 	sel_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(sel_label)
 	var hint := Label.new()
-	hint.text = "ダブルクリックで開く · F2 で名前変更 · 外部ファイルは New から"
+	hint.text = "ダブルクリックで開く · ドラッグして空間に置けます · Type / Usage は一覧・詳細列"
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", MUTED)
 	bar.add_child(hint)
@@ -838,6 +844,10 @@ func _row(x: Dictionary, detail: bool) -> Control:
 	btn.gui_input.connect(func(ev):
 		if ev is InputEventMouseButton and ev.pressed and ev.double_click and ev.button_index == MOUSE_BUTTON_LEFT:
 			open_item(id)
+		elif ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT and not ev.double_click:
+			# Drag-to-world: hold then place on release outside is deferred; click+Shift places now.
+			if ev.shift_pressed and kind in ["model", "image"]:
+				place_item(id)
 	)
 	var box := HBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -863,18 +873,18 @@ func _row(x: Dictionary, detail: bool) -> Control:
 	box.add_child(name_l)
 	var kind_l := Label.new()
 	kind_l.text = meta.label
+	kind_l.custom_minimum_size.x = 72
 	kind_l.add_theme_font_size_override("font_size", 11)
 	kind_l.add_theme_color_override("font_color", MUTED)
 	kind_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(kind_l)
-	if detail:
-		var usage := Label.new()
-		usage.text = usage_text(x)
-		usage.custom_minimum_size.x = 120
-		usage.add_theme_font_size_override("font_size", 11)
-		usage.add_theme_color_override("font_color", MUTED)
-		usage.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		box.add_child(usage)
+	var usage := Label.new()
+	usage.text = usage_text(x)
+	usage.custom_minimum_size.x = 120 if detail else 90
+	usage.add_theme_font_size_override("font_size", 11)
+	usage.add_theme_color_override("font_color", MUTED)
+	usage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(usage)
 	return btn
 
 func usage_text(x: Dictionary) -> String:
@@ -883,7 +893,14 @@ func usage_text(x: Dictionary) -> String:
 	if kind == "material": return "色 " + str(x.get("hex", ""))
 	if kind == "model": return "メッシュ" if str(x.get("asset_id","")) != "" or str(x.get("file","")) != "" else "—"
 	if kind == "image": return "%sx%s" % [x.get("width", "?"), x.get("height", "?")]
-	if kind == "script": return "Slot へ付与済み" if x.get("attached", false) else "定義"
+	if kind == "script":
+		var path: String = str(x.get("virtual_path", ""))
+		if path.is_empty():
+			return "Slot へ付与済み" if x.get("attached", false) else "定義"
+		return path
+	if kind == "kokostate": return str(x.get("virtual_path", "定義"))
+	if kind == "shader": return str(x.get("virtual_path", "枠"))
+	if kind == "package": return "compatible" if x.get("compatible", true) else "—"
 	return "—"
 
 func select_item(id: String) -> void:
@@ -923,6 +940,10 @@ func rebuild_actions() -> void:
 		_action_btn("ワールドに置く", func(): place_item(selected_id))
 	elif kind == "script":
 		_action_btn("Script Editor で開く", open_editor_for_selection)
+	elif kind == "kokostate":
+		_action_btn("定義を開く", func(): status.text = "KokoState エディタは Systems 実装後に接続します。")
+	elif kind == "shader" or kind == "package":
+		_action_btn("詳細", func(): status.text = "%s · メタのみ" % kind)
 	elif kind == "folder":
 		_action_btn("開く", func(): go_folder(selected_id))
 	_action_btn("名前を変更", start_rename)
@@ -1048,6 +1069,31 @@ func create_folder() -> void:
 func create_material() -> void:
 	var id := stamp()
 	upsert_item({"id": id, "kind": "material", "name": "New Material", "parent": cwd, "hex": "#F7C7D9", "is_new": true})
+	selected_id = id
+
+func create_kokostate() -> void:
+	var id := stamp()
+	upsert_item({
+		"id": id,
+		"kind": "kokostate",
+		"name": "New KokoState",
+		"parent": cwd,
+		"virtual_path": "kokostate/%s.ks" % id,
+		"fields": [],
+		"is_new": true,
+	})
+	selected_id = id
+	status.text = "KokoState 定義を追加しました（仮想ファイル）。"
+
+func create_shader() -> void:
+	var id := stamp()
+	upsert_item({"id": id, "kind": "shader", "name": "New Shader", "parent": cwd, "virtual_path": "shaders/%s.gdshader" % id, "is_new": true})
+	selected_id = id
+	status.text = "Shader 枠を追加しました（描画パイプライン未接続）。"
+
+func create_package() -> void:
+	var id := stamp()
+	upsert_item({"id": id, "kind": "package", "name": "package@0.1", "parent": cwd, "compatible": true, "is_new": true})
 	selected_id = id
 
 func remove_item(id: String) -> void:

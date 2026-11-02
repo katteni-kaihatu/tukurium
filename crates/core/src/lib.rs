@@ -780,6 +780,7 @@ pub(crate) fn new_object(name: String, position: [f64; 3], color: [f64; 4]) -> O
         script_editor: None,
         workspace: None,
         world_text: None,
+        item_boundary: None,
         mirror: None,
         camera: None,
         value_number: None,

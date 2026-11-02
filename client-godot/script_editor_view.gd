@@ -15,6 +15,8 @@ var script_mount: MarginContainer
 var script_view
 var status: Label
 var close_when_ready := false
+## world_hud / world_panels.views() expect inspector-like edit bookkeeping.
+var edits: Dictionary = {}
 
 func setup(controller, id: String) -> void:
 	manager = controller
@@ -109,22 +111,33 @@ func request_close() -> void:
 	if html_active: app.html_ui.drop_script_session(panel_id)
 	manager.close_panel(panel_id)
 
+func tick() -> void:
+	if script_view != null:
+		script_view.tick()
+	if close_when_ready and not has_active_edits():
+		close_when_ready = false
+		manager.close_panel(panel_id)
+
 func finish_all() -> void:
 	var html_active: bool = app.html_ui != null and app.html_ui.active
 	if html_active:
 		if app.html_ui.script_sessions.has(panel_id) and not app.html_ui.script_sessions[panel_id].busy():
 			app.html_ui.drop_script_session(panel_id)
 		return
-	if not script_view.busy(): script_view.leave()
+	if script_view != null and not script_view.busy():
+		script_view.leave()
 
 func has_active_edits() -> bool:
 	var html_active: bool = app.html_ui != null and app.html_ui.active
 	if html_active and app.html_ui.script_sessions.has(panel_id):
 		return app.html_ui.script_sessions[panel_id].busy()
-	return script_view.busy()
+	return script_view != null and script_view.busy()
 
 func refresh_sessions() -> void:
 	pass
 
 func disconnected() -> void:
-	script_view.disconnected()
+	if script_view != null:
+		script_view.disconnected()
+	edits.clear()
+	close_when_ready = false

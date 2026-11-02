@@ -133,9 +133,18 @@ var capture_path := ""
 var frames := 0
 var avatar_restore_started := false
 const SERVICE_PANEL = preload("res://service_panel.gd")
+const WORKSPACE_TOOL_OVERLAY = preload("res://workspace_tool_overlay.gd")
 var service_panel = SERVICE_PANEL.new()
+var workspace_tools = WORKSPACE_TOOL_OVERLAY.new()
 var app_version := "開発版"
 var engine_role := ""
+var diff_highlight_ids: Array = []
+
+func highlight_diff_objects(ids: Array) -> void:
+	diff_highlight_ids = []
+	for id in ids:
+		diff_highlight_ids.append(str(id))
+	feedback.text = "Diff highlight · %d" % diff_highlight_ids.size() if not diff_highlight_ids.is_empty() else feedback.text
 
 func _ready() -> void:
 	if FileAccess.file_exists("res://version.txt"):
@@ -166,6 +175,8 @@ func _ready() -> void:
 	build_ui()
 	add_child(service_panel)
 	service_panel.setup(self)
+	add_child(workspace_tools)
+	workspace_tools.setup(self)
 	refresh_localized_chrome()
 	add_child(asset_status)
 	asset_status.setup(self)

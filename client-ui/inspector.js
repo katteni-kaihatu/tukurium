@@ -119,6 +119,16 @@
   }
 
   function onTreeClick(event) {
+    const action = event.target.closest("[data-tree-action]");
+    if (action && state.view) {
+      const name = action.dataset.treeAction;
+      const panel = state.view.panelId;
+      const target = state.view.target;
+      if (name === "duplicate" || name === "delete") {
+        post({ type: "command", name, panel, target });
+      }
+      return;
+    }
     const item = event.target.closest("[data-object]");
     if (!item || !state.view) return;
     post({ type: "command", name: "set_target", panel: state.view.panelId, target: item.dataset.object });
@@ -194,6 +204,17 @@
     tree.replaceChildren();
     const heading = el("div", "tree-head", "Hierarchy");
     tree.append(heading);
+    const tools = el("div", "tree-actions");
+    const dup = el("button", "ghost tiny", "Duplicate");
+    dup.type = "button";
+    dup.dataset.treeAction = "duplicate";
+    dup.disabled = !view.editable || !view.target;
+    const del = el("button", "ghost tiny", "Delete");
+    del.type = "button";
+    del.dataset.treeAction = "delete";
+    del.disabled = !view.editable || !view.target;
+    tools.append(dup, del);
+    tree.append(tools);
     const objects = view.objects || [];
     const byParent = {};
     for (const object of objects) {
@@ -286,6 +307,22 @@
   function renderObject(view) {
     const main = document.querySelector("#main");
     main.replaceChildren();
+    if (view.playLocked) {
+      const lock = el("div", "section");
+      lock.append(el("h3", null, "Play mode"));
+      lock.append(el("p", "empty", "Play mode 中は編集できません。Edit mode に戻ってください。"));
+      const back = el("button", "ghost", "Edit mode に戻る");
+      back.type = "button";
+      back.addEventListener("click", () => post({ type: "command", name: "edit_mode", value: true }));
+      lock.append(back);
+      main.append(lock);
+    }
+    if (view.prefabEditing) {
+      const banner = el("div", "section");
+      banner.append(el("h3", null, "Editing"));
+      banner.append(el("p", "empty", "ここでの変更は、このプレハブから生まれるすべてのモノに反映されます。"));
+      main.append(banner);
+    }
     const actions = el("div", "actions");
     const catalog = el("button", "ghost", state.catalogOpen ? "− Close Component List" : "+ Add Component");
     catalog.type = "button";
@@ -319,7 +356,7 @@
     for (const section of view.sections || []) {
       const card = el("section", "section");
       const heading = el("div", "section-head");
-      heading.append(el("h3", null, section.name));
+      heading.append(el("h3", null, section.heading || section.name));
       if (section.removable) {
         const remove = el("button", "ghost tiny", "Remove");
         remove.type = "button";
@@ -332,6 +369,34 @@
       for (const field of section.fields || []) card.append(fieldRow(field, view.editable));
       main.append(card);
     }
+    const kokostate = el("section", "section");
+    kokostate.append(el("h3", null, "KokoState"));
+    if (view.kokostate && view.kokostate.length) {
+      for (const entry of view.kokostate) {
+        kokostate.append(el("p", "empty", entry.name || entry.id || "KokoState"));
+      }
+    } else {
+      kokostate.append(el("p", "empty", "KokoState はありません"));
+      const add = el("button", "ghost tiny", "Add KokoState");
+      add.type = "button";
+      add.disabled = !view.editable;
+      add.dataset.action = "open_script";
+      add.dataset.script = "";
+      kokostate.append(add);
+      kokostate.append(el("p", "empty", "— Resources に作って定義を開く"));
+    }
+    main.append(kokostate);
+    const systems = el("section", "section");
+    systems.append(el("h3", null, "Systems"));
+    systems.append(el("p", "empty", "この Entity をクエリで処理している · 読み取り専用"));
+    if (view.systems && view.systems.length) {
+      for (const entry of view.systems) {
+        systems.append(el("p", "empty", entry.name || entry.id || "System"));
+      }
+    } else {
+      systems.append(el("p", "empty", "マッチする System はありません"));
+    }
+    main.append(systems);
     const scripts = el("section", "section");
     scripts.append(el("h3", null, "Scripts"));
     const list = el("div", "script-list");

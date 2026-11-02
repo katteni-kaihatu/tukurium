@@ -197,12 +197,27 @@ pub fn create(data_root: &Path, body: &Value) -> Result<Value, String> {
     write_meta(data_root, &meta)?;
     let world = world_path(data_root, &slug);
     fs::write(&world, empty_world_bytes()?).map_err(|e| e.to_string())?;
+    // Seed local VCS / members layout (commits, branches, releases, host member).
+    let actor = body["actor_id"].as_str().unwrap_or("").trim();
+    let actor_name = body["actor_name"].as_str().unwrap_or(actor);
+    let _ = crate::project_vcs::handle(data_root, "project_members", &json!({"slug": slug}));
+    crate::project_vcs::bind_host(data_root, &slug, actor, actor_name)?;
     let mut row = meta.to_json();
     row["script_count"] = json!(0);
+    row["my_role"] = json!(if actor.is_empty() {
+        "host".to_string()
+    } else {
+        crate::project_vcs::role_of(data_root, &slug, actor).unwrap_or_else(|_| "host".into())
+    });
+    row["branch"] = json!("main");
     Ok(row)
 }
 
 pub fn get(data_root: &Path, slug: &str) -> Result<Value, String> {
+    get_for(data_root, slug, "")
+}
+
+pub fn get_for(data_root: &Path, slug: &str, actor_id: &str) -> Result<Value, String> {
     validate_slug(slug)?;
     let meta = read_meta(&meta_path(data_root, slug)).map_err(|_| "Project not found".to_string())?;
     if meta.slug != slug {
@@ -211,6 +226,27 @@ pub fn get(data_root: &Path, slug: &str) -> Result<Value, String> {
     let mut row = meta.to_json();
     row["script_count"] = json!(script_count(data_root, slug));
     row["world_path"] = json!(world_path(data_root, slug).to_string_lossy());
+    let _ = crate::project_vcs::handle(data_root, "project_members", &json!({"slug": slug}));
+    if !actor_id.is_empty() {
+        let _ = crate::project_vcs::bind_host(data_root, slug, actor_id, actor_id);
+    }
+    row["my_role"] = json!(
+        crate::project_vcs::role_of(data_root, slug, actor_id).unwrap_or_else(|_| {
+            if actor_id.is_empty() {
+                "host".into()
+            } else {
+                "view".into()
+            }
+        })
+    );
+    if let Ok(Some(hist)) =
+        crate::project_vcs::handle(data_root, "project_history", &json!({"slug": slug, "actor_id": actor_id}))
+    {
+        row["branch"] = hist.get("branch").cloned().unwrap_or(json!("main"));
+    } else {
+        row["branch"] = json!("main");
+    }
+    row["project_server"] = crate::project_server::status();
     Ok(row)
 }
 
@@ -238,6 +274,13 @@ pub fn handle(data_root: &Path, action: &str, body: &Value) -> Result<Option<Val
     if let Some(v) = crate::project_resources::handle(data_root, action, body)? {
         return Ok(Some(v));
     }
+    if let Some(v) = crate::project_vcs::handle(data_root, action, body)? {
+        return Ok(Some(v));
+    }
+    // Remote project-server swap point (Phase 8). Local FS remains the v0 backend.
+    if let Some(v) = crate::project_server::handle(data_root, action, body)? {
+        return Ok(Some(v));
+    }
     Ok(Some(match action {
         "projects" => {
             let query = body["query"].as_str().unwrap_or("");
@@ -247,11 +290,13 @@ pub fn handle(data_root: &Path, action: &str, body: &Value) -> Result<Option<Val
         "create_project" => create(data_root, body)?,
         "project" => {
             let slug = body["slug"].as_str().ok_or("Missing project slug")?;
-            get(data_root, slug)?
+            let actor = body["actor_id"].as_str().unwrap_or("");
+            get_for(data_root, slug, actor)?
         }
         "project_world_path" => {
             let slug = body["slug"].as_str().ok_or("Missing project slug")?;
-            let detail = get(data_root, slug)?;
+            let actor = body["actor_id"].as_str().unwrap_or("");
+            let detail = get_for(data_root, slug, actor)?;
             json!({
                 "slug": slug,
                 "world_path": detail["world_path"],

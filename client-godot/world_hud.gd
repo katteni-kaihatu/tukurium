@@ -392,7 +392,10 @@ func _process(_delta: float) -> void:
 	for request in app.requests.requests.values():
 		busy=busy or request.kind in ["edit","structure","transform","script","playback"]
 	for view in app.world_panels.views():
-		busy=busy or view.edits.values().any(func(edit): return edit.dirty or edit.inflight) or not view.script_view.flight.is_empty()
+		if view.get("edits") is Dictionary:
+			busy=busy or view.edits.values().any(func(edit): return edit is Dictionary and (edit.get("dirty", false) or edit.get("inflight", false)))
+		if view.get("script_view") != null and view.script_view.get("flight") is Dictionary:
+			busy=busy or not view.script_view.flight.is_empty()
 	sync_label.text="● 同期中" if ready and busy else ("● 同期済み" if ready else "● 接続待ち")
 	sync_label.add_theme_color_override("font_color", DesignChrome.OK if ready else DesignChrome.WARN)
 	sync_label.tooltip_text=app.status_label.text

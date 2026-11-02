@@ -409,18 +409,25 @@ func duplicate_panel(id: String) -> void:
 	command({"kind":"structure","command":{"action":"duplicate","target":app.address_of(app.objects[id]),"expected_revision":app.objects[id].object_revision}})
 
 func sync() -> void:
+	var stale: Array = []
 	for id in panels.keys():
 		if not app.objects.has(id):
-			hide_godot_pin(id)
-			panels[id].content.finish_all()
-			if app.html_ui != null: app.html_ui.drop_script_session(id)
-			panels.erase(id)
-			if capture_id == id: capture_id = ""
-			if keyboard_id == id: keyboard_id = ""
+			stale.append(id)
+	for id in stale:
+		hide_godot_pin(str(id))
+		var panel = panels.get(id)
+		if is_instance_valid(panel) and is_instance_valid(panel.content) and panel.content.has_method("finish_all"):
+			panel.content.finish_all()
+		if app.html_ui != null: app.html_ui.drop_script_session(str(id))
+		panels.erase(id)
+		if capture_id == id: capture_id = ""
+		if keyboard_id == id: keyboard_id = ""
 	for id in app.objects:
-		if app.objects[id].get("panel") != null and panels.has(id):
+		if app.objects[id].get("panel") != null and panels.has(id) and is_instance_valid(panels[id]):
 			panels[id].refresh(app.objects[id])
-	for window in windows.values(): window.get_meta("inspector").refresh_local()
+	for window in windows.values():
+		if is_instance_valid(window):
+			window.get_meta("inspector").refresh_local()
 	refresh_gizmos()
 
 func toggle_dock_inspector(target_id: String = "") -> void:
@@ -479,9 +486,12 @@ func close_window(id: String, force: bool = false) -> void:
 func views() -> Array:
 	var result: Array = []
 	for panel in panels.values():
+		if not is_instance_valid(panel) or not is_instance_valid(panel.content): continue
 		if panel.content.get("script_view") != null:
 			result.append(panel.content)
-	for window in windows.values(): result.append(window.get_meta("inspector"))
+	for window in windows.values():
+		if is_instance_valid(window):
+			result.append(window.get_meta("inspector"))
 	return result
 
 func has_window_focus() -> bool:
@@ -520,11 +530,14 @@ func refresh_gizmos() -> void:
 func text_focused() -> bool:
 	if html_text_focus: return true
 	for panel in panels.values():
+		if not is_instance_valid(panel): continue
 		if panel.has_text_focus(): return true
 	return false
 
 func clear_focus() -> void:
-	for panel in panels.values(): panel.clear_focus()
+	for panel in panels.values():
+		if is_instance_valid(panel):
+			panel.clear_focus()
 	keyboard_id = ""
 	capture_id = ""
 	graph_context_id = ""

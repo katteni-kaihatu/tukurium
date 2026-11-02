@@ -207,6 +207,12 @@ func setup(scene) -> void:
 			var logo := BRAND_ART.picture(BRAND_ART.logo(), Vector2(136, 100))
 			logo.name="BrandLogo"
 			top.add_child(logo)
+			var global_nav := row(top)
+			global_nav.add_theme_constant_override("separation", 6)
+			for nav in [["作る","projects"],["探す","workshop"],["ライブラリ","library"]]:
+				var nav_btn := button(global_nav, str(nav[0]), func(): open_page(str(nav[1])))
+				nav_btn.focus_mode=Control.FOCUS_NONE
+				DesignChrome.style_quiet(nav_btn)
 		var title_group := column(top,3)
 		title_group.mouse_filter=Control.MOUSE_FILTER_IGNORE
 		title_group.size_flags_horizontal=Control.SIZE_EXPAND_FILL

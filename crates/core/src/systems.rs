@@ -581,6 +581,7 @@ pub(crate) fn extract_snapshot(
     resources_views: Query<&ResourcesView>,
     script_editor_views: Query<&ScriptEditorView>,
     workspace_views: Query<&WorkspaceView>,
+    item_boundaries: Query<&ItemBoundary>,
     index: Res<EntityIndex>,
     revision: Res<WorldRevision>,
     changes: Res<ChangeSet>,
@@ -630,6 +631,7 @@ pub(crate) fn extract_snapshot(
             script_editor: script_editor_views.get(entity).ok().map(|s| s.0.clone()),
             workspace: workspace_views.get(entity).ok().map(|w| w.0.clone()),
             world_text: world_text.map(|t| t.0.clone()),
+            item_boundary: item_boundaries.get(entity).ok().map(|b| b.0.clone()),
             mirror: mirror.map(|m| m.0),
             camera: camera.map(|c| c.0),
             value_number: value_numbers.get(entity).ok().map(|v| v.0),
@@ -692,6 +694,22 @@ pub(crate) fn extract_snapshot(
         if let Some(text) = &object.world_text {
             object.fields.push(crate::field("world_text", "Text", "string", serde_json::json!(text.text), revisions));
             object.fields.push(crate::field("world_text_color", "Text color", "color", serde_json::json!(text.color), revisions));
+        }
+        if let Some(boundary) = &object.item_boundary {
+            object.fields.push(crate::field(
+                "item_boundary_prefab_key",
+                "Prefab key",
+                "string",
+                serde_json::json!(boundary.prefab_key),
+                revisions,
+            ));
+            object.fields.push(crate::field(
+                "item_boundary_editing",
+                "Editing prefab",
+                "bool",
+                serde_json::json!(boundary.editing_prefab),
+                revisions,
+            ));
         }
         if let Some(enabled) = object.mirror {
             object.fields.push(crate::field("mirror_enabled", "Enabled", "bool", serde_json::json!(enabled), revisions));

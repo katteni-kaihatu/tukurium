@@ -23,7 +23,7 @@
 
 例えば机にランタンを置いたとき、机の子になっただけでランタンの作者や作品の単位まで机に統合されると困る。
 位置関係を表す親子構造とは別に、「ランタンの外装・光源・スイッチ・Luaをまとめて扱う」という境界が必要になる。
-この境界を表すComponentの名前は未定とし、既存の`ObjectRoot`の改名や責務の変更も、実装時に判断する。
+この境界を表す Component として [`ItemBoundary`](../crates/protocol/src/library.rs)（`prefab_key` / `editing_prefab`）を追加した。親子構造とは別に Slot へ付け、Inspector は `editing_prefab` のときプレハブ編集帯を出す。ライブラリの境界単位保存への拡張は後続。既存の`ObjectRoot`の改名はしない。
 
 ## 作者、配置者、利用権、保持中の人を分けて考える
 

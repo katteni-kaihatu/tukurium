@@ -62,6 +62,9 @@ pub struct WorkspaceView(pub kokoverse_protocol::WorkspaceView);
 #[derive(Component, Clone)]
 pub struct WorldText(pub kokoverse_protocol::WorldText);
 
+#[derive(Component, Clone)]
+pub struct ItemBoundary(pub kokoverse_protocol::ItemBoundary);
+
 #[derive(Component, Clone, Copy)]
 pub struct Mirror(pub bool);
 

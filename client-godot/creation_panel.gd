@@ -209,6 +209,12 @@ func refresh_language() -> void:
 func finish_all() -> void:
 	pass
 
+func has_active_edits() -> bool:
+	return busy
+
+func disconnected() -> void:
+	busy = false
+
 func spawn_slot(with_text: bool) -> void:
 	if busy or not app.editable: return
 	busy=true

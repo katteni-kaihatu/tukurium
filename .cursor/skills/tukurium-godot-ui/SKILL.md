@@ -61,5 +61,6 @@ Do this:
 - [ ] Surface choice recorded (shared 3D vs personal 2D) per ui-surfaces
 - [ ] Rust Component + registry if shared state is new
 - [ ] Godot content hosted by existing WorldPanel
+- [ ] Content implements `finish_all` / `has_active_edits` / `disconnected` (script hosts also `tick` + `edits`); listed in `panel_content_contract_smoke.gd`
 - [ ] No new `:=` on Variant-ish expressions
-- [ ] Parse check clean; related `tests/*-integration.mjs --rendered` if input path changed
+- [ ] Parse check clean; `panel_content_contract_smoke.gd`; related `tests/*-integration.mjs --rendered` if input path changed

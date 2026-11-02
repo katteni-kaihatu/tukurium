@@ -156,9 +156,9 @@ func _build_top_row() -> Control:
 	slug_label = _label("", 14, DesignChrome.PLUM)
 	slug_label.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	left.add_child(slug_label)
-	var branch := _quiet_button("⎇ main", true)
-	branch.disabled = true
-	branch.tooltip_text = "ブランチは未実装"
+	var branch := _quiet_button("⎇ main")
+	branch.tooltip_text = "ブランチ"
+	branch.pressed.connect(func(): _open_tool("branch"))
 	left.add_child(branch)
 	var right := HBoxContainer.new()
 	right.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -167,11 +167,11 @@ func _build_top_row() -> Control:
 	project_button = _quiet_button("<> Project")
 	project_button.pressed.connect(_open_projects)
 	right.add_child(project_button)
-	for item in [["History", "履歴は未実装"], ["Releases", "Releases は未実装"], ["Members", "Members は未実装"]]:
-		var stub := _quiet_button(str(item[0]), true)
-		stub.disabled = true
-		stub.tooltip_text = str(item[1])
-		right.add_child(stub)
+	for item in [["History", "history"], ["Releases", "releases"], ["Members", "members"]]:
+		var tool_btn := _quiet_button(str(item[0]))
+		var tool_name: String = str(item[1])
+		tool_btn.pressed.connect(func(): _open_tool(tool_name))
+		right.add_child(tool_btn)
 	return row
 
 func _build_bottom_row() -> Control:
@@ -200,9 +200,9 @@ func _build_bottom_row() -> Control:
 	play_button.tooltip_text = "Play"
 	play_button.pressed.connect(func(): app.hud.set_edit_mode(false))
 	mode_row.add_child(play_button)
-	var debug_button := _quiet_button("🐞", true)
-	debug_button.disabled = true
-	debug_button.tooltip_text = "Debug は未実装"
+	var debug_button := _quiet_button("🐞")
+	debug_button.tooltip_text = "Debug"
+	debug_button.pressed.connect(func(): _open_tool("debug"))
 	mode_row.add_child(debug_button)
 	inspector_button = _quiet_button("▣ 0")
 	inspector_button.tooltip_text = "インスペクタ"
@@ -264,3 +264,19 @@ func _open_sessions() -> void:
 	if workspace == null or not workspace.enabled: return
 	app.release_cursor()
 	workspace.open_page("sessions")
+
+func _open_tool(tool_name: String) -> void:
+	if app.workspace_tools == null: return
+	app.workspace_tools.open_tool(tool_name)
+
+func finish_all() -> void:
+	pass
+
+func has_active_edits() -> bool:
+	return false
+
+func disconnected() -> void:
+	pass
+
+func tick() -> void:
+	pass
