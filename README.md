@@ -1,6 +1,6 @@
-# tukurium
+<p align="center"><img src="client-godot/assets/branding/logo.png" alt="tukurium" width="360"></p>
 
-<img src="client-godot/assets/branding/logo.png" alt="tukuriumのロゴ" width="280">
+# tukurium
 
 Rust / bevy_ecs のEngineとGodotの表示クライアントを別プロセスで動かす、共同編集の最初のプロトタイプ。各Engine間はGoアダプターを経由してKokoSyncで接続する。Tonariumとのデータ互換性は持たせない。
 
