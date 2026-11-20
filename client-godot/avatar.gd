@@ -59,7 +59,7 @@ func build_oekaki_avatar() -> void:
 	var material := StandardMaterial3D.new()
 	material.albedo_texture = load("res://assets/oekaki/sample.png")
 	paint_material = material
-	material.albedo_color = Color(1.8, 1.8, 1.8, 1.0)
+	material.albedo_color = Color.WHITE
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	material.alpha_scissor_threshold = 0.5
